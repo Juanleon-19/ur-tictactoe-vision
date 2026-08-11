@@ -140,6 +140,67 @@ El detalle de cada fase se mantiene en [`PLAN.md`](PLAN.md).
 - Ningún código automático debe mover el robot durante las primeras fases.
 - Las posiciones reales del UR, IP, calibraciones y parámetros locales no se publicarán en el repositorio.
 
+## Inicio rápido en Windows + VS Code
+
+Clonar el repositorio y abrirlo en VS Code:
+
+```powershell
+git clone https://github.com/Juanleon-19/ur-tictactoe-vision.git
+cd ur-tictactoe-vision
+code .
+```
+
+Crear y activar un entorno virtual:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+Instalar dependencias:
+
+```powershell
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+Crear la configuración local a partir del ejemplo:
+
+```powershell
+Copy-Item config\vision.example.yaml config\vision.local.yaml
+```
+
+Ejecutar las pruebas automáticas:
+
+```powershell
+pytest -q
+```
+
+Generar los cuatro marcadores ArUco iniciales:
+
+```powershell
+python scripts\generate_aruco.py --ids 0 1 2 3
+```
+
+Los PNG se guardarán en `assets/aruco/`. Para la primera prueba pueden mostrarse en otra pantalla o imprimirse; el tamaño físico definitivo se decidirá después de conocer cámara, altura y campo de visión.
+
+Ejecutar la visión en tiempo real:
+
+```powershell
+python main.py vision
+```
+
+La aplicación debe mostrar:
+
+- IDs detectados;
+- bordes y centros de cada marcador;
+- FPS;
+- `BOARD DETECTED` cuando estén visibles los IDs `0`, `1`, `2` y `3`.
+
+Salir con `q` o `Esc`.
+
+Si la cámara correcta no corresponde al índice `0`, editar únicamente `config/vision.local.yaml`. Ese archivo es local y está ignorado por Git.
+
 ## Estado actual
 
 **Fase 1 — Foundation & ArUco.**
