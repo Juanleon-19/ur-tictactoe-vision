@@ -1,0 +1,4 @@
+opencv-contrib-python>=4.10,<5
+numpy>=1.26
+PyYAML>=6.0
+pytest>=8.0
