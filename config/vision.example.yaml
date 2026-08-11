@@ -1,0 +1,14 @@
+camera:
+  index: 0
+  width: 1280
+  height: 720
+  fps: 30
+
+aruco:
+  dictionary: DICT_5X5_50
+  expected_ids: [0, 1, 2, 3]
+
+ui:
+  window_name: UR Tic-Tac-Toe Vision
+  show_fps: true
+  show_marker_centers: true
