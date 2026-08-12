@@ -8,9 +8,9 @@ El primer prototipo utilizará un **UR3**, una cámara fija, Python, OpenCV, mar
 
 Construir un sistema modular capaz de:
 
-1. localizar visualmente un tablero 3×3 mediante marcadores ArUco;
-2. rectificar la imagen y dividirla en nueve regiones de interés;
-3. detectar la jugada realizada por una persona;
+1. localizar visualmente un tablero 3×3 mediante marcadores ArUco externos;
+2. identificar individualmente cada casilla mediante un ArUco propio;
+3. detectar si una casilla pasa de libre a ocupada por la oclusión estable de su marcador;
 4. mantener el estado lógico de la partida;
 5. seleccionar una respuesta mediante un algoritmo de juego, inicialmente Minimax;
 6. enviar al UR únicamente el número de la casilla elegida;
@@ -24,7 +24,8 @@ Cámara
   ↓
 OpenCV + ArUco
   ↓
-Detección del tablero y jugada humana
+4 ArUco externos -> referencia y alineación del tablero
+9 ArUco internos -> identificación de celdas y ocupación
   ↓
 Estado 3×3 + reglas + Minimax
   ↓
@@ -45,8 +46,9 @@ Python será responsable de:
 
 - adquisición de imagen;
 - detección ArUco;
-- rectificación del tablero;
-- detección de cambios en las nueve celdas;
+- referencia visual y alineación del tablero;
+- asociación ID ArUco ↔ casilla lógica;
+- detección temporal de casillas libres/ocupadas;
 - lógica del juego;
 - decisión de la jugada;
 - comunicación Modbus;
@@ -66,31 +68,71 @@ PolyScope será responsable de:
 - velocidades, aceleraciones y movimientos seguros;
 - subprogramas de pick-and-place.
 
-## Uso de ArUco en la V1
+## Diseño ArUco de la V1
 
-Los marcadores ArUco funcionarán como referencias visuales del tablero. Inicialmente se usarán cuatro marcadores alrededor de la matriz 3×3:
+La V1 utilizará **13 marcadores** del mismo diccionario:
+
+- 4 marcadores externos persistentes para la referencia visual del tablero;
+- 9 marcadores internos, uno por cada casilla.
 
 ```text
-ID 0                         ID 1
+ID 0                                             ID 1
 
-        ┌─────┬─────┬─────┐
-        │  1  │  2  │  3  │
-        ├─────┼─────┼─────┤
-        │  4  │  5  │  6  │
-        ├─────┼─────┼─────┤
-        │  7  │  8  │  9  │
-        └─────┴─────┴─────┘
+        ┌─────────┬─────────┬─────────┐
+        │ ID 10   │ ID 11   │ ID 12   │
+        │ CELL 1  │ CELL 2  │ CELL 3  │
+        ├─────────┼─────────┼─────────┤
+        │ ID 13   │ ID 14   │ ID 15   │
+        │ CELL 4  │ CELL 5  │ CELL 6  │
+        ├─────────┼─────────┼─────────┤
+        │ ID 16   │ ID 17   │ ID 18   │
+        │ CELL 7  │ CELL 8  │ CELL 9  │
+        └─────────┴─────────┴─────────┘
 
-ID 2                         ID 3
+ID 2                                             ID 3
 ```
 
-En esta versión ArUco se utilizará para:
+### Marcadores externos
 
-- localizar el tablero en la imagen;
-- obtener referencias geométricas estables;
-- corregir perspectiva mediante homografía;
-- definir las nueve regiones de interés;
-- comprobar que el tablero no se haya desplazado fuera de tolerancia.
+Los IDs `0,1,2,3` permanecerán visibles durante toda la partida. Su función será:
+
+- localizar el tablero;
+- proporcionar una referencia geométrica estable;
+- permitir rectificación/alineación en una fase posterior;
+- detectar desplazamientos del tablero.
+
+### Marcadores por casilla
+
+Los IDs `10..18` identifican las casillas 1..9 respectivamente.
+
+Contrato inicial:
+
+```text
+ID 10 -> celda 1
+ID 11 -> celda 2
+ID 12 -> celda 3
+ID 13 -> celda 4
+ID 14 -> celda 5
+ID 15 -> celda 6
+ID 16 -> celda 7
+ID 17 -> celda 8
+ID 18 -> celda 9
+```
+
+El principio previsto de ocupación será:
+
+```text
+marcador visible de forma estable    -> casilla libre
+marcador deja de ser visible         -> candidata a casilla ocupada
+```
+
+La desaparición de un marcador **no se aceptará inmediatamente como jugada**. En fases posteriores se requerirá estabilidad temporal, ausencia de mano/robot en la zona y coherencia con el estado lógico previo.
+
+### Requisito mecánico importante
+
+Las piezas X y O deben diseñarse para **ocultar de forma fiable el marcador ArUco de la casilla** cuando están correctamente colocadas. Un O completamente abierto podría dejar visible un marcador situado en el centro, por lo que el diseño deberá incluir una zona opaca común, puente, base o geometría equivalente que garantice la oclusión del marcador sin perder la apariencia de la pieza.
+
+Los cuatro ArUco externos permanecen visibles incluso cuando las casillas se ocupan; por eso la referencia del tablero no depende de que los marcadores internos sigan visibles.
 
 La estimación completa de pose 3D y la corrección automática de posiciones del robot se reservan para una versión futura.
 
@@ -116,10 +158,10 @@ Los valores definitivos y las direcciones de registros se fijarán durante la fa
 
 ## Fases
 
-1. **Foundation & ArUco** — Git, entorno Python, cámara y detección de marcadores.
-2. **Board Vision** — homografía, tablero rectificado y nueve ROI.
+1. **Foundation & ArUco** — Git, entorno Python, cámara y detección de los 13 marcadores.
+2. **Board & Cell Mapping** — referencia del tablero y asociación robusta ID ↔ celda.
 3. **Game Engine** — estado 3×3, reglas y Minimax.
-4. **Human Move Detection** — detección robusta de nuevas jugadas.
+4. **Occupancy & Human Move Detection** — detección temporal de ocupación mediante ArUco y validación de jugadas.
 5. **PolyScope** — HOME, PICK y subprogramas para las nueve casillas.
 6. **Piece Handling** — recogida y liberación repetibles.
 7. **Modbus** — protocolo COMMAND/STATUS entre Python y UR.
@@ -176,13 +218,13 @@ Ejecutar las pruebas automáticas:
 pytest -q
 ```
 
-Generar los cuatro marcadores ArUco iniciales:
+Generar los 13 marcadores ArUco iniciales:
 
 ```powershell
-python scripts\generate_aruco.py --ids 0 1 2 3
+python scripts\generate_aruco.py --ids 0 1 2 3 10 11 12 13 14 15 16 17 18
 ```
 
-Los PNG se guardarán en `assets/aruco/`. Para la primera prueba pueden mostrarse en otra pantalla o imprimirse; el tamaño físico definitivo se decidirá después de conocer cámara, altura y campo de visión.
+Los PNG se guardarán en `assets/aruco/`. El tamaño físico definitivo se decidirá después de conocer cámara, altura, tamaño del tablero y campo de visión.
 
 Ejecutar la visión en tiempo real:
 
@@ -190,12 +232,16 @@ Ejecutar la visión en tiempo real:
 python main.py vision
 ```
 
-La aplicación debe mostrar:
+Durante la Fase 1 la aplicación debe mostrar:
 
 - IDs detectados;
 - bordes y centros de cada marcador;
 - FPS;
-- `BOARD DETECTED` cuando estén visibles los IDs `0`, `1`, `2` y `3`.
+- `FRAME READY` cuando estén visibles los IDs externos `0,1,2,3`;
+- número de marcadores de celda visibles de `9`;
+- `EMPTY BOARD READY` cuando estén visibles los cuatro marcadores externos y los nueve internos.
+
+En Fase 1 un marcador interno ausente se reporta únicamente como **missing**; todavía no se clasifica automáticamente como una casilla ocupada.
 
 Salir con `q` o `Esc`.
 
@@ -205,4 +251,4 @@ Si la cámara correcta no corresponde al índice `0`, editar únicamente `config
 
 **Fase 1 — Foundation & ArUco.**
 
-Primer objetivo verificable: abrir una cámara desde Python, detectar los marcadores ArUco esperados y mostrar sus IDs y esquinas en tiempo real, sin ninguna conexión con el robot.
+Primer objetivo verificable: abrir una cámara desde Python y detectar de forma estable los cuatro marcadores externos y los nueve marcadores de casilla en un tablero vacío, sin ninguna conexión con el robot.
