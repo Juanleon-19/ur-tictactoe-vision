@@ -31,6 +31,9 @@ def run_vision(config: VisionConfig) -> int:
     try:
         with Camera(config.camera) as camera:
             effective = camera.effective_settings
+            cv2.namedWindow(config.ui.window_name, cv2.WINDOW_NORMAL)
+            print(f"Camera backend: {config.camera.backend}")
+            print(f"Camera index: {config.camera.index}")
             print(
                 f"Requested camera: {config.camera.width}x{config.camera.height} "
                 f"@ {config.camera.fps} FPS"

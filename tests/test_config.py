@@ -4,7 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from ur_tictactoe.config import load_vision_config
+import cv2
+
+from ur_tictactoe.config import camera_backend_id, load_vision_config
 
 
 def _write_config(path: Path, aruco_block: str) -> None:
@@ -77,4 +79,24 @@ def test_rejects_reordered_v1_ids(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="frame_ids must be exactly"):
+        load_vision_config(path)
+
+
+@pytest.mark.parametrize(
+    ("name", "opencv_id"),
+    [
+        ("AUTO", cv2.CAP_ANY),
+        ("DSHOW", cv2.CAP_DSHOW),
+        ("MSMF", cv2.CAP_MSMF),
+    ],
+)
+def test_maps_camera_backend_to_opencv(name: str, opencv_id: int) -> None:
+    assert camera_backend_id(name) == opencv_id
+
+
+def test_rejects_unknown_camera_backend(tmp_path: Path) -> None:
+    path = tmp_path / "vision.yaml"
+    path.write_text("camera:\n  backend: INVALID\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Unknown camera backend 'INVALID'"):
         load_vision_config(path)

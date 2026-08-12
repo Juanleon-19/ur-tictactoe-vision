@@ -5,6 +5,11 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
+from ur_tictactoe.config import CELL_IDS, FRAME_IDS
+
+TEST_BOARD_SIZE = (1920, 1080)
+TEST_BOARD_DICTIONARY = "DICT_5X5_50"
+
 
 @dataclass(frozen=True)
 class DetectionResult:
@@ -33,6 +38,32 @@ class ArucoDetector:
 
         flat_ids = tuple(int(value) for value in ids.flatten())
         return DetectionResult(corners=tuple(corners), ids=flat_ids)
+
+
+def generate_test_board(output_path: str) -> None:
+    width, height = TEST_BOARD_SIZE
+    canvas = np.full((height, width), 255, dtype=np.uint8)
+    dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
+
+    frame_size = 160
+    frame_positions = ((80, 80), (1680, 80), (80, 840), (1680, 840))
+    cell_size = 130
+    cell_positions = tuple(
+        (700 + column * 245, 330 + row * 210)
+        for row in range(3)
+        for column in range(3)
+    )
+
+    for marker_id, (x, y) in zip(FRAME_IDS, frame_positions):
+        marker = cv2.aruco.generateImageMarker(dictionary, marker_id, frame_size)
+        canvas[y : y + frame_size, x : x + frame_size] = marker
+
+    for marker_id, (x, y) in zip(CELL_IDS, cell_positions):
+        marker = cv2.aruco.generateImageMarker(dictionary, marker_id, cell_size)
+        canvas[y : y + cell_size, x : x + cell_size] = marker
+
+    if not cv2.imwrite(output_path, canvas):
+        raise RuntimeError(f"Could not write ArUco test board: {output_path}")
 
 
 def draw_detections(

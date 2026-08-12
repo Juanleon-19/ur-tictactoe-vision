@@ -5,14 +5,31 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+import cv2
 
 FRAME_IDS = (0, 1, 2, 3)
 CELL_IDS = (10, 11, 12, 13, 14, 15, 16, 17, 18)
+CAMERA_BACKENDS = {
+    "AUTO": cv2.CAP_ANY,
+    "DSHOW": cv2.CAP_DSHOW,
+    "MSMF": cv2.CAP_MSMF,
+}
+
+
+def camera_backend_id(name: str) -> int:
+    try:
+        return CAMERA_BACKENDS[name]
+    except KeyError as exc:
+        supported = ", ".join(CAMERA_BACKENDS)
+        raise ValueError(
+            f"Unknown camera backend '{name}'. Supported values: {supported}."
+        ) from exc
 
 
 @dataclass(frozen=True)
 class CameraConfig:
     index: int = 0
+    backend: str = "AUTO"
     width: int = 1280
     height: int = 720
     fps: int = 30
@@ -83,8 +100,11 @@ def load_vision_config(path: Path) -> VisionConfig:
     if cell_ids != CELL_IDS:
         raise ValueError(f"aruco.cell_ids must be exactly {list(CELL_IDS)} for V1.")
 
+    backend = str(camera_raw.get("backend", "AUTO")).upper()
+    camera_backend_id(backend)
     camera = CameraConfig(
         index=int(camera_raw.get("index", 0)),
+        backend=backend,
         width=int(camera_raw.get("width", 1280)),
         height=int(camera_raw.get("height", 720)),
         fps=int(camera_raw.get("fps", 30)),

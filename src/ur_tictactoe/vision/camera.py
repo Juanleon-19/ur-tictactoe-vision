@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import cv2
 
-from ur_tictactoe.config import CameraConfig
+from ur_tictactoe.config import CameraConfig, camera_backend_id
 
 
 @dataclass(frozen=True)
@@ -20,7 +20,9 @@ class Camera:
         self._capture: cv2.VideoCapture | None = None
 
     def open(self) -> None:
-        capture = cv2.VideoCapture(self.config.index)
+        capture = cv2.VideoCapture(
+            self.config.index, camera_backend_id(self.config.backend)
+        )
         if not capture.isOpened():
             capture.release()
             raise RuntimeError(

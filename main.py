@@ -11,6 +11,7 @@ if str(SRC) not in sys.path:
 
 from ur_tictactoe.config import load_vision_config
 from ur_tictactoe.vision.app import run_vision
+from ur_tictactoe.vision.camera_discovery import run_camera_discovery
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -27,6 +28,9 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=ROOT / "config" / "vision.local.yaml",
         help="Path to the local vision YAML configuration",
+    )
+    subparsers.add_parser(
+        "cameras", help="List Windows camera devices and probe OpenCV backends"
     )
     return parser
 
@@ -46,6 +50,9 @@ def main() -> int:
 
         config = load_vision_config(config_path)
         return run_vision(config)
+
+    if args.command == "cameras":
+        return run_camera_discovery()
 
     return 0
 

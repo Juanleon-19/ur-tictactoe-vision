@@ -1,5 +1,6 @@
 camera:
   index: 0
+  backend: AUTO
   width: 1280
   height: 720
   fps: 30
