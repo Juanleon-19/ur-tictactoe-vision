@@ -17,6 +17,24 @@ La V1 separa responsabilidades de forma estricta:
 
 Python no debe generar trayectorias cartesianas del UR en la V1.
 
+## Contrato ArUco V1
+
+La arquitectura de visión utiliza **13 marcadores** del mismo diccionario:
+
+- `frame_ids = [0,1,2,3]`: cuatro marcadores externos persistentes para referencia/alineación del tablero;
+- `cell_ids = [10,11,12,13,14,15,16,17,18]`: uno por cada celda lógica `1..9` en ese mismo orden.
+
+No sustituir este diseño por cuatro marcadores externos únicamente ni por nueve marcadores internos únicamente sin autorización explícita.
+
+Los marcadores de celda tendrán doble función:
+
+1. identificar de forma inequívoca cada casilla;
+2. servir como señal primaria de ocupación cuando la pieza colocada ocluya el marcador.
+
+La ausencia de un marcador de celda **no equivale automáticamente a OCCUPIED**. En la fase correspondiente deberá validarse temporalmente y descartarse oclusión por mano, robot, iluminación, desenfoque u otros fallos de detección.
+
+Durante Fase 1 solo se reportan marcadores visibles/faltantes; no se implementa todavía la máquina de estados FREE/UNKNOWN/OCCUPIED.
+
 ## Estado actual
 
 Consultar `PLAN.md` antes de realizar cambios. La fase activa inicial es:
@@ -30,7 +48,8 @@ Durante esta fase están prohibidas dependencias o implementaciones de:
 - Modbus;
 - ROS/ROS2;
 - Minimax;
-- detección de X/O;
+- clasificación de X/O;
+- inferencia definitiva de ocupación;
 - control del robot;
 - pose 3D del tablero;
 - calibración hand-eye.
@@ -47,6 +66,8 @@ Durante esta fase están prohibidas dependencias o implementaciones de:
 8. Manejar errores de cámara con mensajes claros; no usar excepciones silenciosas.
 9. No añadir machine learning si una solución geométrica/determinista satisface el requisito.
 10. Evitar dependencias que no tengan una necesidad demostrada.
+11. Mantener separados los roles de `frame_ids` y `cell_ids`.
+12. No inferir que un marcador faltante es ocupación hasta implementar y validar la lógica temporal de Fase 4.
 
 ## Git
 
@@ -65,7 +86,7 @@ Aunque el robot no forma parte de la Fase 1, conservar estas reglas para fases p
 - HOME, PICK y las nueve posiciones de juego se enseñarán en PolyScope;
 - velocidades, aceleraciones, TCP, payload y poses reales nunca se inventan;
 - cualquier activación de movimiento debe tener una ruta clara de parada y un estado conocido;
-- la visión no debe ordenar una jugada si el tablero está fuera de la condición de alineación establecida.
+- la visión no debe ordenar una jugada si los marcadores externos no confirman la condición de referencia/alineación establecida.
 
 ## Criterio para añadir una dependencia
 
