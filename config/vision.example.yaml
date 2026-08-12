@@ -6,7 +6,13 @@ camera:
 
 aruco:
   dictionary: DICT_5X5_50
-  expected_ids: [0, 1, 2, 3]
+
+  # Marcadores externos: permanecen visibles y definen la referencia visual del tablero.
+  frame_ids: [0, 1, 2, 3]
+
+  # Marcadores internos: uno por casilla, en orden lógico 1..9.
+  # ID 10 -> celda 1, ID 11 -> celda 2, ..., ID 18 -> celda 9.
+  cell_ids: [10, 11, 12, 13, 14, 15, 16, 17, 18]
 
 ui:
   window_name: UR Tic-Tac-Toe Vision
