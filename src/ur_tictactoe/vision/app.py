@@ -24,7 +24,8 @@ def _draw_status(frame, text: str, y: int) -> None:
 
 def run_vision(config: VisionConfig) -> int:
     detector = ArucoDetector(config.aruco.dictionary)
-    expected_ids = set(config.aruco.expected_ids)
+    frame_ids = set(config.aruco.frame_ids)
+    cell_ids = set(config.aruco.cell_ids)
 
     previous_time = time.perf_counter()
     fps = 0.0
@@ -49,19 +50,43 @@ def run_vision(config: VisionConfig) -> int:
                     instantaneous_fps = 1.0 / delta
                     fps = instantaneous_fps if fps == 0 else (0.9 * fps + 0.1 * instantaneous_fps)
 
-                detected_expected = expected_ids.issubset(result.id_set)
-                board_text = "BOARD DETECTED" if detected_expected else "BOARD NOT DETECTED"
-                _draw_status(display, board_text, 30)
+                visible_ids = result.id_set
+                frame_ready = frame_ids.issubset(visible_ids)
+                visible_cell_ids = cell_ids & visible_ids
+                missing_cell_ids = cell_ids - visible_ids
+                empty_board_ready = frame_ready and not missing_cell_ids
+
+                _draw_status(
+                    display,
+                    "FRAME READY" if frame_ready else "FRAME NOT READY",
+                    30,
+                )
+                _draw_status(
+                    display,
+                    f"Cell markers visible: {len(visible_cell_ids)}/{len(cell_ids)}",
+                    60,
+                )
+                _draw_status(
+                    display,
+                    "EMPTY BOARD READY" if empty_board_ready else "EMPTY BOARD NOT READY",
+                    90,
+                )
 
                 detected_text = "Detected IDs: " + (
-                    ", ".join(str(marker_id) for marker_id in sorted(result.id_set))
+                    ", ".join(str(marker_id) for marker_id in sorted(visible_ids))
                     if result.ids
                     else "none"
                 )
-                _draw_status(display, detected_text, 60)
+                _draw_status(display, detected_text, 120)
+
+                if missing_cell_ids:
+                    missing_text = "Missing cell IDs: " + ", ".join(
+                        str(marker_id) for marker_id in sorted(missing_cell_ids)
+                    )
+                    _draw_status(display, missing_text, 150)
 
                 if config.ui.show_fps:
-                    _draw_status(display, f"FPS: {fps:.1f}", 90)
+                    _draw_status(display, f"FPS: {fps:.1f}", 180)
 
                 cv2.imshow(config.ui.window_name, display)
                 key = cv2.waitKey(1) & 0xFF
