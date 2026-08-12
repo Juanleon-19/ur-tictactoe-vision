@@ -221,7 +221,7 @@ pytest -q
 Generar los 13 marcadores ArUco iniciales:
 
 ```powershell
-python scripts\generate_aruco.py --ids 0 1 2 3 10 11 12 13 14 15 16 17 18
+python scripts\generate_aruco.py
 ```
 
 Los PNG se guardarán en `assets/aruco/`. El tamaño físico definitivo se decidirá después de conocer cámara, altura, tamaño del tablero y campo de visión.

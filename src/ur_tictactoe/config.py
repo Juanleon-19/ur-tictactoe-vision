@@ -6,6 +6,9 @@ from typing import Any
 
 import yaml
 
+FRAME_IDS = (0, 1, 2, 3)
+CELL_IDS = (10, 11, 12, 13, 14, 15, 16, 17, 18)
+
 
 @dataclass(frozen=True)
 class CameraConfig:
@@ -18,8 +21,8 @@ class CameraConfig:
 @dataclass(frozen=True)
 class ArucoConfig:
     dictionary: str = "DICT_5X5_50"
-    frame_ids: tuple[int, ...] = (0, 1, 2, 3)
-    cell_ids: tuple[int, ...] = (10, 11, 12, 13, 14, 15, 16, 17, 18)
+    frame_ids: tuple[int, ...] = FRAME_IDS
+    cell_ids: tuple[int, ...] = CELL_IDS
 
     @property
     def all_ids(self) -> tuple[int, ...]:
@@ -68,19 +71,17 @@ def load_vision_config(path: Path) -> VisionConfig:
     aruco_raw = _section(raw, "aruco")
     ui_raw = _section(raw, "ui")
 
-    frame_ids = _parse_ids(aruco_raw, "frame_ids", [0, 1, 2, 3])
+    frame_ids = _parse_ids(aruco_raw, "frame_ids", list(FRAME_IDS))
     cell_ids = _parse_ids(
         aruco_raw,
         "cell_ids",
-        [10, 11, 12, 13, 14, 15, 16, 17, 18],
+        list(CELL_IDS),
     )
 
-    if len(frame_ids) != 4:
-        raise ValueError("aruco.frame_ids must contain exactly four marker IDs.")
-    if len(cell_ids) != 9:
-        raise ValueError("aruco.cell_ids must contain exactly nine marker IDs.")
-    if set(frame_ids) & set(cell_ids):
-        raise ValueError("aruco.frame_ids and aruco.cell_ids must not overlap.")
+    if frame_ids != FRAME_IDS:
+        raise ValueError(f"aruco.frame_ids must be exactly {list(FRAME_IDS)} for V1.")
+    if cell_ids != CELL_IDS:
+        raise ValueError(f"aruco.cell_ids must be exactly {list(CELL_IDS)} for V1.")
 
     camera = CameraConfig(
         index=int(camera_raw.get("index", 0)),
