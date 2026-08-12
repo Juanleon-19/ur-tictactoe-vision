@@ -10,6 +10,8 @@ PC / Python                              UR3 / PolyScope
 Cámara
   ↓
 OpenCV + ArUco
+  ├── 4 marcadores externos -> referencia del tablero
+  └── 9 marcadores internos -> ID de celda / ocupación
   ↓
 Tablero digital 3×3
   ↓
@@ -26,32 +28,80 @@ El PC indica **qué casilla** jugar. El UR determina **cómo moverse físicament
 
 En V1 existen dos referencias deliberadamente desacopladas:
 
-1. **Referencia visual del tablero**: definida por ArUco y utilizada por OpenCV.
+1. **Referencia visual del tablero**: definida por cuatro ArUco externos y utilizada por OpenCV.
 2. **Referencia física del UR**: definida mediante posiciones enseñadas en PolyScope.
 
 ArUco no modifica automáticamente las poses del UR durante V1.
 
 Esta decisión reduce el riesgo de que un error de estimación visual produzca directamente una trayectoria cartesiana incorrecta.
 
-## Tablero
+## Tablero y contrato de IDs
 
-Configuración conceptual:
+La V1 utiliza dos grupos de marcadores con responsabilidades diferentes.
 
 ```text
-ID 0                         ID 1
+ID 0                                             ID 1
 
-        ┌─────┬─────┬─────┐
-        │  1  │  2  │  3  │
-        ├─────┼─────┼─────┤
-        │  4  │  5  │  6  │
-        ├─────┼─────┼─────┤
-        │  7  │  8  │  9  │
-        └─────┴─────┴─────┘
+        ┌─────────┬─────────┬─────────┐
+        │ ID 10   │ ID 11   │ ID 12   │
+        │ CELL 1  │ CELL 2  │ CELL 3  │
+        ├─────────┼─────────┼─────────┤
+        │ ID 13   │ ID 14   │ ID 15   │
+        │ CELL 4  │ CELL 5  │ CELL 6  │
+        ├─────────┼─────────┼─────────┤
+        │ ID 16   │ ID 17   │ ID 18   │
+        │ CELL 7  │ CELL 8  │ CELL 9  │
+        └─────────┴─────────┴─────────┘
 
-ID 2                         ID 3
+ID 2                                             ID 3
 ```
 
-Los IDs forman parte del contrato geométrico y no deben cambiarse sin actualizar configuración y documentación.
+### Frame markers
+
+`0,1,2,3` son marcadores persistentes. Deben permanecer visibles mientras el sistema esté habilitado y se usarán para:
+
+- localizar el tablero;
+- verificar orientación;
+- detectar desplazamientos;
+- soportar rectificación/homografía.
+
+### Cell markers
+
+`10..18` corresponden uno a uno con las nueve casillas:
+
+```text
+10 -> 1    11 -> 2    12 -> 3
+13 -> 4    14 -> 5    15 -> 6
+16 -> 7    17 -> 8    18 -> 9
+```
+
+Su ausencia estable será una **señal candidata de ocupación**, no una confirmación inmediata.
+
+## Modelo de ocupación previsto
+
+Durante una partida:
+
+```text
+VISIBLE -> FREE
+MISSING transitorio -> UNKNOWN / OCCLUDED
+MISSING estable + validaciones -> OCCUPIED
+```
+
+La transición a `OCCUPIED` deberá considerar:
+
+- persistencia durante varios frames;
+- que la referencia externa del tablero siga válida;
+- que no haya una oclusión transitoria causada por mano o robot;
+- que la casilla estuviera libre en el estado lógico anterior;
+- que el cambio sea coherente con el turno actual.
+
+La V1 no depende de reconocer visualmente la forma X/O para saber a quién pertenece una jugada: inicialmente esa propiedad puede derivarse del turno y del estado lógico. Si las pruebas muestran que hace falta una segunda fuente de evidencia, se añadirá una clasificación visual específica en su fase correspondiente.
+
+## Implicación mecánica
+
+El principio `marker missing -> candidate occupied` requiere que **ambos tipos de pieza oculten el ArUco de su casilla de forma repetible**.
+
+El diseño mecánico deberá garantizar una zona opaca común sobre el marcador. En particular, una pieza O con un agujero central no puede dejar el ArUco completamente visible cuando esté correctamente colocada.
 
 ## Fase 1
 
@@ -66,6 +116,14 @@ vision/app.py
   ├── camera.py
   └── aruco.py
 ```
+
+La Fase 1 solo valida detección y roles de IDs:
+
+- `FRAME READY` cuando `0,1,2,3` son visibles;
+- contador de `10..18` visibles;
+- `EMPTY BOARD READY` cuando los 13 marcadores son visibles.
+
+No se clasifica ocupación todavía.
 
 No existe ninguna dependencia hacia módulos del robot.
 
