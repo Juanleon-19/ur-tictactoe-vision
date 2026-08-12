@@ -18,7 +18,12 @@ class CameraConfig:
 @dataclass(frozen=True)
 class ArucoConfig:
     dictionary: str = "DICT_5X5_50"
-    expected_ids: tuple[int, ...] = (0, 1, 2, 3)
+    frame_ids: tuple[int, ...] = (0, 1, 2, 3)
+    cell_ids: tuple[int, ...] = (10, 11, 12, 13, 14, 15, 16, 17, 18)
+
+    @property
+    def all_ids(self) -> tuple[int, ...]:
+        return self.frame_ids + self.cell_ids
 
 
 @dataclass(frozen=True)
@@ -42,6 +47,13 @@ def _section(data: dict[str, Any], name: str) -> dict[str, Any]:
     return value
 
 
+def _parse_ids(raw: dict[str, Any], key: str, default: list[int]) -> tuple[int, ...]:
+    ids = tuple(int(value) for value in raw.get(key, default))
+    if len(ids) != len(set(ids)):
+        raise ValueError(f"aruco.{key} must not contain duplicate IDs.")
+    return ids
+
+
 def load_vision_config(path: Path) -> VisionConfig:
     if not path.exists():
         raise FileNotFoundError(f"Vision configuration not found: {path}")
@@ -56,9 +68,19 @@ def load_vision_config(path: Path) -> VisionConfig:
     aruco_raw = _section(raw, "aruco")
     ui_raw = _section(raw, "ui")
 
-    expected_ids = tuple(int(value) for value in aruco_raw.get("expected_ids", [0, 1, 2, 3]))
-    if len(expected_ids) != len(set(expected_ids)):
-        raise ValueError("aruco.expected_ids must not contain duplicate IDs.")
+    frame_ids = _parse_ids(aruco_raw, "frame_ids", [0, 1, 2, 3])
+    cell_ids = _parse_ids(
+        aruco_raw,
+        "cell_ids",
+        [10, 11, 12, 13, 14, 15, 16, 17, 18],
+    )
+
+    if len(frame_ids) != 4:
+        raise ValueError("aruco.frame_ids must contain exactly four marker IDs.")
+    if len(cell_ids) != 9:
+        raise ValueError("aruco.cell_ids must contain exactly nine marker IDs.")
+    if set(frame_ids) & set(cell_ids):
+        raise ValueError("aruco.frame_ids and aruco.cell_ids must not overlap.")
 
     camera = CameraConfig(
         index=int(camera_raw.get("index", 0)),
@@ -73,7 +95,8 @@ def load_vision_config(path: Path) -> VisionConfig:
         camera=camera,
         aruco=ArucoConfig(
             dictionary=str(aruco_raw.get("dictionary", "DICT_5X5_50")),
-            expected_ids=expected_ids,
+            frame_ids=frame_ids,
+            cell_ids=cell_ids,
         ),
         ui=UIConfig(
             window_name=str(ui_raw.get("window_name", "UR Tic-Tac-Toe Vision")),
