@@ -100,6 +100,19 @@ La transición a `OCCUPIED` deberá considerar:
 
 La V1 no depende de reconocer visualmente la forma X/O para saber a quién pertenece una jugada: inicialmente esa propiedad puede derivarse del turno y del estado lógico. Si las pruebas muestran que hace falta una segunda fuente de evidencia, se añadirá una clasificación visual específica en su fase correspondiente.
 
+### Detección lógica de una jugada humana
+
+La Fase 2 compara los IDs visibles con los marcadores que ya se esperan ausentes
+porque sus celdas están ocupadas:
+
+```text
+IDs visibles -> nueva ausencia única -> N frames estables -> celda 1..9
+```
+
+Si `FRAME READY` se pierde o aparecen varias ausencias nuevas, la candidata se
+descarta. El detector solo produce el evento lógico; no decide el turno ni modifica
+el tablero del Game Engine.
+
 ## Implicación mecánica
 
 El principio `marker missing -> candidate occupied` requiere que **ambos tipos de pieza oculten el ArUco de su casilla de forma repetible**.

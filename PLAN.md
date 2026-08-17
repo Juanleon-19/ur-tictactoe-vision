@@ -69,6 +69,8 @@ La Fase 1 no debe inferir todavía que un ArUco ausente implica una jugada: dura
 
 ## Fase 2 — Human Move Detection
 
+**Estado: implementación lógica validada; validación física con cámara pendiente.**
+
 ### Objetivo
 
 Detectar la jugada humana principalmente mediante la desaparición estable de un
