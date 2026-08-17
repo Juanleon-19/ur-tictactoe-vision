@@ -2,7 +2,9 @@
 
 Este documento define el orden de implementación del proyecto. Cada fase debe cerrar con un resultado verificable antes de iniciar la siguiente.
 
-## Fase 1 — Foundation & ArUco
+## Fase 1 — Vision & ArUco
+
+**Estado: validada experimentalmente con Logitech C920.**
 
 ### Objetivo
 
@@ -65,23 +67,21 @@ La Fase 1 no debe inferir todavía que un ArUco ausente implica una jugada: dura
 
 ---
 
-## Fase 2 — Board & Cell Mapping
+## Fase 2 — Human Move Detection
 
 ### Objetivo
 
-Convertir los marcadores ArUco en una referencia geométrica estable del tablero y en una asociación determinista entre marcador y casilla.
+Detectar la jugada humana principalmente mediante la desaparición estable de un
+marcador de celda y convertir su ID en una celda `1..9`.
 
 ### Entregables
 
-- referencia visual basada en los cuatro marcadores externos;
-- comprobación de orientación del tablero;
-- homografía/rectificación cuando sea necesaria;
 - asociación fija `ID 10..18 ↔ celda 1..9`;
-- validación geométrica de que cada ArUco interno aparece en la celda esperada;
-- visualización del tablero lógico y de sus nueve marcadores;
-- detección de tablero desplazado o referencia externa incompleta.
+- estabilidad temporal/debounce;
+- rechazo de oclusiones transitorias de mano, robot o fallos de detección;
+- aceptación de una única jugada legal respecto al estado anterior.
 
-No se aceptarán todavía jugadas humanas.
+La homografía no es requisito de V1 si la identificación por IDs es fiable.
 
 ---
 
@@ -97,45 +97,18 @@ Implementar el juego de Triqui independientemente de cámara y robot.
 - validación de jugadas;
 - detección de victoria y empate;
 - Minimax;
+- desempate agresivo únicamente entre opciones con el mismo valor óptimo;
 - pruebas exhaustivas del motor lógico.
 
----
-
-## Fase 4 — Occupancy & Human Move Detection
-
-### Objetivo
-
-Detectar una nueva jugada física usando principalmente el estado de visibilidad de los ArUco de cada casilla.
-
-### Principio inicial
-
-```text
-ArUco de celda visible de forma estable -> libre
-ArUco deja de ser visible               -> candidata a ocupada
-```
-
-La ausencia de un marcador no será suficiente por sí sola para aceptar una jugada.
-
-### Entregables
-
-- seguimiento temporal de los nueve IDs de celda;
-- ventana de estabilidad/debounce para cambios de visibilidad;
-- rechazo de oclusiones transitorias producidas por mano o robot;
-- detección de exactamente una nueva casilla candidata;
-- validación contra el estado lógico previo;
-- confirmación antes de actualizar la partida;
-- estrategia de recuperación si un marcador deja de detectarse por iluminación, desenfoque o perspectiva;
-- pruebas con X y O reales verificando que ambas piezas ocultan el marcador correspondiente.
-
-La identificación de X/O puede apoyarse inicialmente en el turno y el estado lógico. Una clasificación visual adicional solo se añadirá si resulta necesaria experimentalmente.
+Esta fase se desarrolla anticipadamente porque no depende de cámara ni robot.
 
 ---
 
-## Fase 5 — PolyScope
+## Fase 4 — PolyScope
 
 ### Objetivo
 
-Construir y validar en el UR3 todas las trayectorias preenseñadas, sin depender de Python.
+Enseñar y validar manualmente las trayectorias físicas, en paralelo al software.
 
 ### Entregables
 
@@ -143,8 +116,8 @@ Construir y validar en el UR3 todas las trayectorias preenseñadas, sin depender
 - PICK_APPROACH;
 - PICK;
 - PICK_EXIT;
-- nueve posiciones de colocación;
-- nueve subprogramas de jugada;
+- un único PICK fijo donde otra persona coloca la ficha;
+- nueve destinos y subprogramas `Play_Cell_1 ... Play_Cell_9`;
 - velocidades y aceleraciones verificadas;
 - retorno seguro a HOME.
 
@@ -152,41 +125,16 @@ Python no generará estas trayectorias.
 
 ---
 
-## Fase 6 — Piece Handling
+## Fase 5 — Modbus
 
 ### Objetivo
 
-Validar mecánicamente la recogida, transporte, colocación y oclusión fiable del ArUco de cada casilla.
-
-### Entregables
-
-- punto fijo de recogida o magazine;
-- herramienta final;
-- repetibilidad del pick;
-- repetibilidad del place;
-- diseño de X y O que cubra de forma fiable el marcador de celda;
-- manejo de ausencia de pieza cuando sea posible.
-
----
-
-## Fase 7 — Modbus
-
-### Objetivo
-
-Crear un protocolo simple y robusto entre Python y PolyScope.
+Enviar desde Python únicamente la celda elegida.
 
 ### Diseño inicial
 
 ```text
-COMMAND
-0    idle
-1..9 jugar en la celda indicada
-
-STATUS
-0 ready
-1 busy
-2 done
-3 error
+COMMAND = 1..9 -> PolyScope ejecuta Play_Cell_N
 ```
 
 Las direcciones de registros se fijarán durante esta fase y se documentarán explícitamente.
@@ -194,59 +142,35 @@ Las direcciones de registros se fijarán durante esta fase y se documentarán ex
 ### Entregables
 
 - cliente Modbus Python;
-- lectura/escritura controlada;
-- handshake COMMAND/STATUS;
-- timeout y manejo de desconexión;
+- escritura controlada de `COMMAND = 1..9`;
+- timeout y manejo de desconexión sin inventar comandos adicionales;
 - prueba sin movimiento antes de habilitar trayectorias.
 
 ---
 
-## Fase 8 — Integration
+## Fase 6 — Integration
 
 ### Objetivo
 
 Cerrar el flujo completo:
 
 ```text
-ArUco por celda -> jugada humana -> Minimax -> comando -> UR -> ejecución
+Cámara -> jugada humana -> Game Engine -> movimiento 1..9 -> Modbus -> PolyScope
 ```
 
 ---
 
-## Fase 9 — Verification
+## Fase 7 — Validation / Optional robustness
 
 ### Objetivo
 
-No asumir que una acción física fue correcta.
+Validar el sistema completo y añadir técnicas geométricas solo si los ensayos las
+justifican.
 
 ### Entregables
 
-- verificación visual de que la celda ordenada queda ocupada;
-- comprobación continua de los cuatro marcadores externos;
-- detección de tablero desplazado;
-- estados de error recuperables;
-- bloqueo de nueva jugada mientras el robot esté ocupado.
-
----
-
-## Fase 10 — Validation
-
-### Objetivo
-
-Medir el desempeño final del sistema.
-
-### Métricas iniciales
-
-- precisión de detección libre/ocupada por casilla;
-- precisión de detección de jugadas;
-- tasa de partidas completadas;
-- tiempo de visión;
-- tiempo de decisión;
-- tiempo de ejecución del robot;
-- tasa de errores de pick/place;
-- tasa de falsos `occupied` por pérdida de ArUco;
-- tolerancia al desplazamiento del tablero;
-- falsos positivos de visión.
+- homografía, pose 3D o calibración, únicamente si son necesarias;
+- verificación adicional y métricas de partidas completas.
 
 ## Regla de avance
 

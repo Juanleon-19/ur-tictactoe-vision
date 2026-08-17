@@ -134,40 +134,30 @@ Las piezas X y O deben diseñarse para **ocultar de forma fiable el marcador ArU
 
 Los cuatro ArUco externos permanecen visibles incluso cuando las casillas se ocupan; por eso la referencia del tablero no depende de que los marcadores internos sigan visibles.
 
-La estimación completa de pose 3D y la corrección automática de posiciones del robot se reservan para una versión futura.
+La homografía, la pose 3D y la calibración se añadirán solo si las pruebas de V1
+demuestran que la identificación directa por IDs no es suficiente.
 
 ## Comunicación con el UR
 
-La interfaz prevista es Modbus TCP con un protocolo simple de comando/estado.
+La interfaz V1 prevista es un comando Modbus mínimo:
 
 Ejemplo conceptual:
 
 ```text
-COMMAND
-0 = idle
-1..9 = jugar en la casilla indicada
-
-STATUS
-0 = ready
-1 = busy
-2 = done
-3 = error
+COMMAND = 1..9 -> PolyScope ejecuta Play_Cell_N
 ```
 
 Los valores definitivos y las direcciones de registros se fijarán durante la fase de integración Modbus.
 
 ## Fases
 
-1. **Foundation & ArUco** — Git, entorno Python, cámara y detección de los 13 marcadores.
-2. **Board & Cell Mapping** — referencia del tablero y asociación robusta ID ↔ celda.
+1. **Vision & ArUco** — Logitech C920 y detección validada de los 13 IDs.
+2. **Human Move Detection** — desaparición estable del marcador e ID → celda `1..9`.
 3. **Game Engine** — estado 3×3, reglas y Minimax.
-4. **Occupancy & Human Move Detection** — detección temporal de ocupación mediante ArUco y validación de jugadas.
-5. **PolyScope** — HOME, PICK y subprogramas para las nueve casillas.
-6. **Piece Handling** — recogida y liberación repetibles.
-7. **Modbus** — protocolo COMMAND/STATUS entre Python y UR.
-8. **Integration** — visión → decisión → Modbus → robot.
-9. **Verification** — confirmación visual y recuperación de errores.
-10. **Validation** — métricas, pruebas y documentación final.
+4. **PolyScope** — PICK fijo y nueve subprogramas preenseñados.
+5. **Modbus** — Python envía únicamente `COMMAND = 1..9`.
+6. **Integration** — cámara → jugada → motor → Modbus → PolyScope.
+7. **Validation / Optional robustness** — geometría avanzada solo con evidencia.
 
 El detalle de cada fase se mantiene en [`PLAN.md`](PLAN.md).
 
@@ -238,6 +228,19 @@ Ejecutar la visión en tiempo real:
 python main.py vision
 ```
 
+Jugar manualmente contra el motor, sin cámara ni robot:
+
+```powershell
+python main.py game --difficulty hard --seed 42
+python main.py game --difficulty intermediate --seed 42
+python main.py game --human-first --difficulty intermediate --seed 42
+```
+
+La dificultad predeterminada es `hard`. Este modo conserva el Minimax perfecto;
+`intermediate` usa búsqueda limitada y puede cometer errores estratégicos de
+horizonte. La representación, las reglas y ambos algoritmos se explican en
+[`docs/game-engine.md`](docs/game-engine.md).
+
 En Windows, listar la información PnP disponible y probar secuencialmente los índices `0..5` con los backends `AUTO`, `DSHOW` y `MSMF`:
 
 ```powershell
@@ -263,6 +266,7 @@ Si la cámara correcta no corresponde al índice `0`, editar únicamente `config
 
 ## Estado actual
 
-**Fase 1 — Foundation & ArUco.**
+**Fase 3 — Game Engine, desarrollada anticipadamente con autorización explícita.**
 
-Primer objetivo verificable: abrir una cámara desde Python y detectar de forma estable los cuatro marcadores externos y los nueve marcadores de casilla en un tablero vacío, sin ninguna conexión con el robot.
+La Fase 1 está validada experimentalmente. El motor se prueba sin cámara, robot,
+Modbus ni red.

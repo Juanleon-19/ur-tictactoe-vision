@@ -35,24 +35,32 @@ La ausencia de un marcador de celda **no equivale automáticamente a OCCUPIED**.
 
 Durante Fase 1 solo se reportan marcadores visibles/faltantes; no se implementa todavía la máquina de estados FREE/UNKNOWN/OCCUPIED.
 
-## Estado actual
+## Fases V1 aprobadas
 
-Consultar `PLAN.md` antes de realizar cambios. La fase activa inicial es:
+Consultar `PLAN.md` antes de realizar cambios. La arquitectura vigente es:
 
-**Fase 1 — Foundation & ArUco**.
+- Fase 1: visión y los 13 ArUco, validada experimentalmente;
+- Fase 2: detección temporal de la jugada humana por desaparición estable del marcador;
+- Fase 3: motor 3×3 y Minimax, autorizado para desarrollo anticipado porque no depende de hardware;
+- Fase 4: trayectorias preenseñadas en PolyScope con un único PICK fijo;
+- Fase 5: Modbus envía solamente `COMMAND = 1..9`;
+- Fase 6: integración completa;
+- Fase 7: robustez opcional, solo cuando exista evidencia experimental.
 
-Durante esta fase están prohibidas dependencias o implementaciones de:
+Durante la Fase 3 están fuera de alcance:
 
 - RTDE;
 - URScript dinámico;
 - Modbus;
 - ROS/ROS2;
-- Minimax;
 - clasificación de X/O;
 - inferencia definitiva de ocupación;
 - control del robot;
 - pose 3D del tablero;
 - calibración hand-eye.
+
+La homografía, pose 3D y calibración no son requisitos de V1 mientras la
+identificación directa por IDs resulte fiable.
 
 ## Reglas de desarrollo
 
@@ -67,7 +75,7 @@ Durante esta fase están prohibidas dependencias o implementaciones de:
 9. No añadir machine learning si una solución geométrica/determinista satisface el requisito.
 10. Evitar dependencias que no tengan una necesidad demostrada.
 11. Mantener separados los roles de `frame_ids` y `cell_ids`.
-12. No inferir que un marcador faltante es ocupación hasta implementar y validar la lógica temporal de Fase 4.
+12. No inferir que un marcador faltante es ocupación hasta implementar y validar la lógica temporal de Fase 2.
 
 ## Git
 
@@ -80,7 +88,7 @@ Durante esta fase están prohibidas dependencias o implementaciones de:
 
 ## Seguridad del robot
 
-Aunque el robot no forma parte de la Fase 1, conservar estas reglas para fases posteriores:
+Aunque el robot no forma parte de la Fase 3, conservar estas reglas para fases posteriores:
 
 - ningún movimiento físico debe ejecutarse automáticamente como parte de tests;
 - HOME, PICK y las nueve posiciones de juego se enseñarán en PolyScope;
