@@ -1,8 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import cv2
 
-from ur_tictactoe.config import CameraConfig
+from ur_tictactoe.config import CameraConfig, camera_backend_id
+
+
+@dataclass(frozen=True)
+class CameraSettings:
+    width: int
+    height: int
+    fps: float
 
 
 class Camera:
@@ -11,7 +20,9 @@ class Camera:
         self._capture: cv2.VideoCapture | None = None
 
     def open(self) -> None:
-        capture = cv2.VideoCapture(self.config.index)
+        capture = cv2.VideoCapture(
+            self.config.index, camera_backend_id(self.config.backend)
+        )
         if not capture.isOpened():
             capture.release()
             raise RuntimeError(
@@ -23,6 +34,16 @@ class Camera:
         capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config.height)
         capture.set(cv2.CAP_PROP_FPS, self.config.fps)
         self._capture = capture
+
+    @property
+    def effective_settings(self) -> CameraSettings:
+        if self._capture is None:
+            raise RuntimeError("Camera is not open.")
+        return CameraSettings(
+            width=round(self._capture.get(cv2.CAP_PROP_FRAME_WIDTH)),
+            height=round(self._capture.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+            fps=self._capture.get(cv2.CAP_PROP_FPS),
+        )
 
     def read(self):
         if self._capture is None:

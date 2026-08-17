@@ -221,7 +221,13 @@ pytest -q
 Generar los 13 marcadores ArUco iniciales:
 
 ```powershell
-python scripts\generate_aruco.py --ids 0 1 2 3 10 11 12 13 14 15 16 17 18
+python scripts\generate_aruco.py
+```
+
+Generar una hoja digital 1920×1080 con los 13 marcadores para mostrarla a pantalla completa:
+
+```powershell
+python scripts\generate_aruco.py --board
 ```
 
 Los PNG se guardarán en `assets/aruco/`. El tamaño físico definitivo se decidirá después de conocer cámara, altura, tamaño del tablero y campo de visión.
@@ -231,6 +237,14 @@ Ejecutar la visión en tiempo real:
 ```powershell
 python main.py vision
 ```
+
+En Windows, listar la información PnP disponible y probar secuencialmente los índices `0..5` con los backends `AUTO`, `DSHOW` y `MSMF`:
+
+```powershell
+python main.py cameras
+```
+
+El nombre PnP es diagnóstico y no implica una correspondencia automática con un índice OpenCV. El backend (`AUTO`, `DSHOW` o `MSMF`) y el índice encontrados se configuran manualmente en `config/vision.local.yaml`.
 
 Durante la Fase 1 la aplicación debe mostrar:
 
