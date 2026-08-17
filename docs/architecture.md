@@ -152,6 +152,21 @@ victorias rápidas y retrasa derrotas. Entre jugadas con idéntico valor óptimo
 prefiere la que deja menos respuestas humanas que conserven el mejor resultado
 del humano; este criterio nunca degrada el resultado Minimax.
 
+## Game Session
+
+La sesión coordina una partida sin acoplar visión ni ejecución física:
+
+```text
+HumanMoveDetector -> human_move -> GameSession -> Game Engine / Minimax
+                                             -> pending_robot_move
+                                             -> futura confirmación Modbus
+                                             -> confirm_robot_move()
+```
+
+`request_robot_move()` solo registra la intención elegida por Minimax. El tablero
+se actualiza cuando `confirm_robot_move()` confirma que la acción externa terminó.
+Una cancelación elimina la intención pendiente sin alterar el tablero.
+
 ## Flujo físico aprobado
 
 PolyScope contiene `HOME`, `PICK_APPROACH`, un único `PICK` fijo, `PICK_EXIT` y
