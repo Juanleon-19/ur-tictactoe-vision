@@ -10,7 +10,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ur_tictactoe.config import load_vision_config
-from ur_tictactoe.game import Board, O, X, best_move
+from ur_tictactoe.game import HARD, INTERMEDIATE, Board, O, X, choose_move
 from ur_tictactoe.vision.app import run_vision
 from ur_tictactoe.vision.camera_discovery import run_camera_discovery
 
@@ -42,6 +42,12 @@ def build_parser() -> argparse.ArgumentParser:
     game_parser.add_argument(
         "--seed", type=int, default=None, help="Seed for the robot's random opening"
     )
+    game_parser.add_argument(
+        "--difficulty",
+        choices=(HARD, INTERMEDIATE),
+        default=HARD,
+        help="Robot difficulty (default: hard)",
+    )
     return parser
 
 
@@ -70,7 +76,11 @@ def _ask_human_move(board: Board) -> int:
             print("Enter a number from 1 to 9.")
 
 
-def run_game(human_first: bool = False, seed: int | None = None) -> int:
+def run_game(
+    human_first: bool = False,
+    seed: int | None = None,
+    difficulty: str = HARD,
+) -> int:
     human, robot = (X, O) if human_first else (O, X)
     turn = X
     board = Board()
@@ -85,7 +95,7 @@ def run_game(human_first: bool = False, seed: int | None = None) -> int:
             move = _ask_human_move(board)
             board.make_move(move, human)
         else:
-            move = best_move(board, robot, human, seed)
+            move = choose_move(board, robot, human, difficulty, seed)
             if move is None:
                 break
             board.make_move(move, robot)
@@ -124,7 +134,7 @@ def main() -> int:
         return run_camera_discovery()
 
     if args.command == "game":
-        return run_game(args.human_first, args.seed)
+        return run_game(args.human_first, args.seed, args.difficulty)
 
     return 0
 

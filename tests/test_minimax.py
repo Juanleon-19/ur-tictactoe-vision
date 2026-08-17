@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from ur_tictactoe.game.engine import Board, O, X
-from ur_tictactoe.game.minimax import best_move, count_optimal_human_responses
+from ur_tictactoe.game.minimax import (
+    HARD,
+    INTERMEDIATE,
+    best_move,
+    choose_move,
+    count_optimal_human_responses,
+)
 
 
 def board_with_moves(*moves: tuple[int, str]) -> Board:
@@ -115,3 +121,58 @@ def test_automatic_game_reaches_a_real_terminal_state() -> None:
         board.make_move(move, turn)
         turn = O if turn == X else X
     assert board.winner() in (X, O) or board.is_draw()
+
+
+def test_intermediate_never_returns_occupied_cell() -> None:
+    board = board_with_moves((1, X), (5, O), (9, X))
+    assert choose_move(board, O, X, INTERMEDIATE) in board.available_moves()
+
+
+def test_intermediate_takes_immediate_win() -> None:
+    board = board_with_moves((1, O), (4, X), (2, O), (5, X))
+    assert choose_move(board, O, X, INTERMEDIATE) == 3
+
+
+def test_intermediate_blocks_immediate_threat() -> None:
+    board = board_with_moves((1, X), (5, O), (2, X))
+    assert choose_move(board, O, X, INTERMEDIATE) == 3
+
+
+def test_intermediate_automatic_game_reaches_terminal_state() -> None:
+    board = Board()
+    turn = X
+    while not board.is_game_over():
+        other = O if turn == X else X
+        move = choose_move(board, turn, other, INTERMEDIATE, seed=7)
+        assert move in board.available_moves()
+        board.make_move(move, turn)
+        turn = other
+    assert board.winner() in (X, O) or board.is_draw()
+
+
+def test_intermediate_opening_respects_seed() -> None:
+    first = choose_move(Board(), X, O, INTERMEDIATE, seed=42)
+    second = choose_move(Board(), X, O, INTERMEDIATE, seed=42)
+    assert first == second
+    assert first in {1, 3, 7, 9}
+
+
+def test_intermediate_differs_from_hard_due_to_limited_depth() -> None:
+    board = board_with_moves((1, X), (2, O))
+    assert choose_move(board, X, O, HARD, seed=42) == 4
+    assert choose_move(board, X, O, INTERMEDIATE, seed=42) == 5
+
+
+def test_intermediate_can_be_defeated_by_a_legal_sequence() -> None:
+    board = Board()
+    human_moves = iter((3, 7, 9, 8))
+    turn = X
+    while not board.is_game_over():
+        if turn == X:
+            board.make_move(next(human_moves), X)
+        else:
+            move = choose_move(board, O, X, INTERMEDIATE, seed=42)
+            assert move in board.available_moves()
+            board.make_move(move, O)
+        turn = O if turn == X else X
+    assert board.winner() == X

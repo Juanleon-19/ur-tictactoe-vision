@@ -231,23 +231,15 @@ python main.py vision
 Jugar manualmente contra el motor, sin cámara ni robot:
 
 ```powershell
-python main.py game --seed 42
-python main.py game --human-first
+python main.py game --difficulty hard --seed 42
+python main.py game --difficulty intermediate --seed 42
+python main.py game --human-first --difficulty intermediate --seed 42
 ```
 
-### Cómo decide Minimax
-
-Minimax simula cada movimiento legal y alterna turnos: el robot intenta maximizar
-la puntuación y el humano minimizarla. La simulación continúa hasta encontrar una
-victoria, derrota o empate; después propaga esas puntuaciones hacia atrás y elige
-la mejor celda. La profundidad favorece victorias rápidas y, si perder fuera
-inevitable, retrasa la derrota.
-
-El resultado perfecto siempre manda: victoria sobre empate y empate sobre
-derrota. Solo entre movimientos con exactamente la misma puntuación se aplica un
-desempate agresivo, prefiriendo el que deja menos respuestas humanas igualmente
-óptimas. En un tablero vacío, si el robot comienza, escoge aleatoriamente una de
-las cuatro esquinas; `--seed` permite repetir la elección en pruebas.
+La dificultad predeterminada es `hard`. Este modo conserva el Minimax perfecto;
+`intermediate` usa búsqueda limitada y puede cometer errores estratégicos de
+horizonte. La representación, las reglas y ambos algoritmos se explican en
+[`docs/game-engine.md`](docs/game-engine.md).
 
 En Windows, listar la información PnP disponible y probar secuencialmente los índices `0..5` con los backends `AUTO`, `DSHOW` y `MSMF`:
 
