@@ -183,6 +183,17 @@ GameSession -> pending_robot_move -> ModbusClient -> futuro PolyScope
 `ModbusClient` solo lee `STATUS` y escribe `COMMAND`; una capa de integración
 externa confirmará o cancelará el movimiento pendiente según el handshake.
 
+La integración de software completa queda coordinada por ciclos no bloqueantes:
+
+```text
+C920/OpenCV -> HumanMoveDetector -> GameController -> GameSession
+                                                   -> ModbusClient -> PolyScope
+```
+
+Actualmente esta cadena está validada con IDs visibles y transporte Modbus
+simulados. `GameController` recibe sus componentes por inyección y no crea cámara,
+conexiones ni direcciones IP.
+
 ## Evolución prevista
 
 La arquitectura crecerá por responsabilidades:
