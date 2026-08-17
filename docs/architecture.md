@@ -174,6 +174,15 @@ PolyScope contiene `HOME`, `PICK_APPROACH`, un único `PICK` fijo, `PICK_EXIT` y
 No hay magazine automático y Python nunca genera trayectorias. En integración,
 Python enviará solamente `COMMAND = 1..9` por Modbus.
 
+La frontera de comunicación conserva separadas decisión y ejecución:
+
+```text
+GameSession -> pending_robot_move -> ModbusClient -> futuro PolyScope
+```
+
+`ModbusClient` solo lee `STATUS` y escribe `COMMAND`; una capa de integración
+externa confirmará o cancelará el movimiento pendiente según el handshake.
+
 ## Evolución prevista
 
 La arquitectura crecerá por responsabilidades:

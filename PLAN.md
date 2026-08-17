@@ -136,16 +136,23 @@ Enviar desde Python únicamente la celda elegida.
 ### Diseño inicial
 
 ```text
-COMMAND = 1..9 -> PolyScope ejecuta Play_Cell_N
+COMMAND_REGISTER = 128
+STATUS_REGISTER  = 129
+
+COMMAND: 0 idle; 1..9 -> PolyScope ejecuta Play_Cell_N
+STATUS:  0 ready; 1 busy; 2 done; 3 error
 ```
 
-Las direcciones de registros se fijarán durante esta fase y se documentarán explícitamente.
+El servidor UR usa direccionamiento base 0, escucha en TCP `502`, permite registros
+generales `128..255` e ignora Unit Identifier/Slave ID. Los registros `128` y `129`
+son la reserva explícita de este proyecto.
 
 ### Entregables
 
 - cliente Modbus Python;
 - escritura controlada de `COMMAND = 1..9`;
-- timeout y manejo de desconexión sin inventar comandos adicionales;
+- lectura de `STATUS` y handshake `READY -> BUSY -> DONE/ERROR`;
+- timeout y manejo de desconexión;
 - prueba sin movimiento antes de habilitar trayectorias.
 
 ---
