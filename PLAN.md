@@ -4,7 +4,7 @@ Este documento define el orden de implementación del proyecto. Cada fase debe c
 
 ## Fase 1 — Vision & ArUco
 
-**Estado: validada experimentalmente con Logitech C920.**
+**Estado:** validada experimentalmente con Logitech C920.
 
 ### Objetivo
 
@@ -69,7 +69,7 @@ La Fase 1 no debe inferir todavía que un ArUco ausente implica una jugada: dura
 
 ## Fase 2 — Human Move Detection
 
-**Estado: implementación lógica validada; validación física con cámara pendiente.**
+**Estado:** implementación lógica validada; validación física con cámara pendiente.
 
 ### Objetivo
 
@@ -89,6 +89,9 @@ La homografía no es requisito de V1 si la identificación por IDs es fiable.
 
 ## Fase 3 — Game Engine
 
+**Estado:** implementación lógica completa y validada; HARD, INTERMEDIATE y
+GameSession integrados.
+
 ### Objetivo
 
 Implementar el juego de Triqui independientemente de cámara y robot.
@@ -107,6 +110,8 @@ Esta fase se desarrolla anticipadamente porque no depende de cámara ni robot.
 ---
 
 ## Fase 4 — PolyScope
+
+**Estado:** pendiente de implementación y validación física.
 
 ### Objetivo
 
@@ -128,6 +133,9 @@ Python no generará estas trayectorias.
 ---
 
 ## Fase 5 — Modbus
+
+**Estado:** interfaz software y protocolo validados mediante transporte simulado;
+validación contra UR/URSim pendiente.
 
 ### Objetivo
 
@@ -159,6 +167,9 @@ son la reserva explícita de este proyecto.
 
 ## Fase 6 — Integration
 
+**Estado:** integración software end-to-end validada mediante visión y Modbus
+simulados; integración física pendiente.
+
 ### Objetivo
 
 Cerrar el flujo completo:
@@ -170,6 +181,8 @@ Cámara -> jugada humana -> Game Engine -> movimiento 1..9 -> Modbus -> PolyScop
 ---
 
 ## Fase 7 — Validation / Optional robustness
+
+**Estado:** pendiente.
 
 ### Objetivo
 
