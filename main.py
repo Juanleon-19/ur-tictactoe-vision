@@ -10,6 +10,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ur_tictactoe.config import load_vision_config
+from ur_tictactoe.game import Board, O, X, best_move
 from ur_tictactoe.vision.app import run_vision
 from ur_tictactoe.vision.camera_discovery import run_camera_discovery
 
@@ -32,7 +33,75 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "cameras", help="List Windows camera devices and probe OpenCV backends"
     )
+    game_parser = subparsers.add_parser(
+        "game", help="Play Tic-Tac-Toe against the standalone game engine"
+    )
+    game_parser.add_argument(
+        "--human-first", action="store_true", help="Let the human play first as X"
+    )
+    game_parser.add_argument(
+        "--seed", type=int, default=None, help="Seed for the robot's random opening"
+    )
     return parser
+
+
+def _print_board(board: Board) -> None:
+    values = [board.cell(cell) or str(cell) for cell in range(1, 10)]
+    for row in range(3):
+        start = row * 3
+        print(f" {values[start]} | {values[start + 1]} | {values[start + 2]}")
+        if row < 2:
+            print("---+---+---")
+
+
+def _ask_human_move(board: Board) -> int:
+    while True:
+        raw_value = input("Your move: ").strip()
+        try:
+            move = int(raw_value)
+            if move not in board.available_moves():
+                if not 1 <= move <= 9:
+                    print("Choose a cell from 1 to 9.")
+                else:
+                    print("That cell is already occupied.")
+                continue
+            return move
+        except ValueError:
+            print("Enter a number from 1 to 9.")
+
+
+def run_game(human_first: bool = False, seed: int | None = None) -> int:
+    human, robot = (X, O) if human_first else (O, X)
+    turn = X
+    board = Board()
+
+    print("TRIQUI — Human vs Robot")
+    print(f"\nRobot: {robot}\nHuman: {human}\n")
+    _print_board(board)
+
+    while not board.is_game_over():
+        print()
+        if turn == human:
+            move = _ask_human_move(board)
+            board.make_move(move, human)
+        else:
+            move = best_move(board, robot, human, seed)
+            if move is None:
+                break
+            board.make_move(move, robot)
+            print(f"Robot plays: {move}")
+        print()
+        _print_board(board)
+        turn = O if turn == X else X
+
+    winner = board.winner()
+    if winner == robot:
+        print("\nROBOT WINS")
+    elif winner == human:
+        print("\nHUMAN WINS")
+    else:
+        print("\nDRAW")
+    return 0
 
 
 def main() -> int:
@@ -53,6 +122,9 @@ def main() -> int:
 
     if args.command == "cameras":
         return run_camera_discovery()
+
+    if args.command == "game":
+        return run_game(args.human_first, args.seed)
 
     return 0
 

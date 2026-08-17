@@ -63,7 +63,10 @@ ID 2                                             ID 3
 - localizar el tablero;
 - verificar orientación;
 - detectar desplazamientos;
-- soportar rectificación/homografía.
+- confirmar que la referencia visual requerida permanece disponible.
+
+La identificación directa por IDs es suficiente para V1 mientras las pruebas sean
+fiables; la homografía no es un requisito inicial.
 
 ### Cell markers
 
@@ -127,23 +130,38 @@ No se clasifica ocupación todavía.
 
 No existe ninguna dependencia hacia módulos del robot.
 
+## Game Engine
+
+`game/engine.py` mantiene el tablero, valida celdas públicas `1..9` y aplica las
+reglas. `game/minimax.py` explora el árbol completo sin depender de visión ni del
+robot. El robot maximiza y el humano minimiza una puntuación terminal que favorece
+victorias rápidas y retrasa derrotas. Entre jugadas con idéntico valor óptimo, se
+prefiere la que deja menos respuestas humanas que conserven el mejor resultado
+del humano; este criterio nunca degrada el resultado Minimax.
+
+## Flujo físico aprobado
+
+PolyScope contiene `HOME`, `PICK_APPROACH`, un único `PICK` fijo, `PICK_EXIT` y
+`Play_Cell_1 ... Play_Cell_9`. Otra persona coloca cada ficha del robot en PICK.
+No hay magazine automático y Python nunca genera trayectorias. En integración,
+Python enviará solamente `COMMAND = 1..9` por Modbus.
+
 ## Evolución prevista
 
 La arquitectura crecerá por responsabilidades:
 
 ```text
 src/ur_tictactoe/
-├── vision/          # Fases 1, 2 y 4
+├── vision/          # Fases 1 y 2
 ├── game/            # Fase 3
-├── communication/   # Fase 7
-└── application/     # Integración posterior
+└── communication/   # Fase 5, aún no creada
 ```
 
 Estas carpetas futuras no deben crearse hasta que comience su fase correspondiente.
 
-## V2 potencial
+## Robustez opcional
 
-Una versión futura puede incorporar:
+La Fase 7 puede incorporar, solo con evidencia experimental:
 
 ```text
 ArUco / ChArUco
