@@ -30,7 +30,7 @@ elegir(tablero, turno, profundidad):
     si juega humano: devolver el mínimo
 ```
 
-La puntuación terminal de HARD es `10 - profundidad` cuando gana el robot, `0`
+La puntuación terminal de EXPERTO es `10 - profundidad` cuando gana el robot, `0`
 para empate y `profundidad - 10` cuando gana el humano. Así una victoria rápida
 vale más y una derrota inevitable se retrasa. La puntuación se propaga desde las
 hojas del árbol hasta la jugada actual.
@@ -40,12 +40,12 @@ agresivo cuenta cuántas respuestas permiten al humano conservar su mejor
 resultado. El robot prefiere dejar menos respuestas correctas, pero nunca cambia
 una victoria por empate ni un empate por derrota.
 
-## HARD e INTERMEDIATE
+## EXPERTO e INTERMEDIO
 
-HARD recorre el árbol completo hasta un estado terminal. Por eso conoce las
+EXPERTO recorre el árbol completo hasta un estado terminal. Por eso conoce las
 consecuencias de todas las jugadas y, en un tablero 3×3, es invencible.
 
-INTERMEDIATE limita la búsqueda a **2 plies**: una jugada del robot y una respuesta
+INTERMEDIO limita la búsqueda a **2 plies**: una jugada del robot y una respuesta
 humana. El valor permite defender amenazas cercanas sin anticipar todas las
 combinaciones futuras. Antes de buscar, siempre toma una victoria inmediata o
 bloquea una victoria humana inmediata.
@@ -54,4 +54,24 @@ Al alcanzar el límite, su heurística suma líneas abiertas del robot, resta l�
 abiertas del humano y concede valores pequeños al centro y las esquinas. Dos
 marcas en una línea abierta pesan más que una. Esta evaluación produce jugadas
 razonables, pero puede no ver forks que aparecen después del horizonte; por eso
-INTERMEDIATE es fuerte en tácticas inmediatas y aun así puede ser derrotado.
+INTERMEDIO es fuerte en tácticas inmediatas y aun así puede ser derrotado.
+
+## Modos visibles en español y PÍCARO
+
+**EXPERTO** usa el Minimax completo. **INTERMEDIO** conserva la búsqueda limitada y
+la heurística, incluidas la victoria y el bloqueo inmediatos.
+
+**PÍCARO** evalúa primero el juego normal con Minimax completo. Si el robot puede
+forzar una victoria, juega como EXPERTO. Si el mejor resultado normal es empate o
+derrota y hay fichas humanas, simula sustituir cada una por una ficha robot y elige
+determinísticamente la sustitución con mejor resultado Minimax, suponiendo que el
+turno siguiente es humano. Esta acción consume el turno y no agrega otra ficha.
+
+La intención se representa mediante
+`RobotDecision(action="normal" | "picaro", cell=N)`. Solicitarla no modifica el
+tablero; `GameSession` solo aplica la jugada o sustitución al confirmarla.
+`Board.make_move()` continúa rechazando sobrescrituras.
+
+**Modo PÍCARO — Feature post-MVP.** La lógica de juego está implementada y
+probada. La integración física con Modbus y PolyScope queda pendiente. No forma
+parte del flujo normal actualmente integrado en `main`.

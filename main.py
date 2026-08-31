@@ -10,7 +10,18 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ur_tictactoe.config import load_vision_config
-from ur_tictactoe.game import HARD, INTERMEDIATE, Board, O, X, choose_move
+from ur_tictactoe.game import (
+    EXPERTO,
+    HARD,
+    INTERMEDIO,
+    INTERMEDIATE,
+    PICARO,
+    PICARO_ACTION,
+    Board,
+    O,
+    X,
+    choose_robot_decision,
+)
 from ur_tictactoe.vision.app import run_vision
 from ur_tictactoe.vision.camera_discovery import run_camera_discovery
 
@@ -34,19 +45,19 @@ def build_parser() -> argparse.ArgumentParser:
         "cameras", help="List Windows camera devices and probe OpenCV backends"
     )
     game_parser = subparsers.add_parser(
-        "game", help="Play Tic-Tac-Toe against the standalone game engine"
+        "game", help="Jugar Triqui contra el motor local"
     )
     game_parser.add_argument(
-        "--human-first", action="store_true", help="Let the human play first as X"
+        "--human-first", action="store_true", help="Permitir que el humano empiece como X"
     )
     game_parser.add_argument(
-        "--seed", type=int, default=None, help="Seed for the robot's random opening"
+        "--seed", type=int, default=None, help="Semilla para la apertura aleatoria"
     )
     game_parser.add_argument(
         "--difficulty",
-        choices=(HARD, INTERMEDIATE),
-        default=HARD,
-        help="Robot difficulty (default: hard)",
+        choices=(EXPERTO, INTERMEDIO, PICARO, HARD, INTERMEDIATE),
+        default=EXPERTO,
+        help="Modo del robot: experto, intermedio o picaro (predeterminado: experto)",
     )
     return parser
 
@@ -62,31 +73,31 @@ def _print_board(board: Board) -> None:
 
 def _ask_human_move(board: Board) -> int:
     while True:
-        raw_value = input("Your move: ").strip()
+        raw_value = input("Tu jugada: ").strip()
         try:
             move = int(raw_value)
             if move not in board.available_moves():
                 if not 1 <= move <= 9:
-                    print("Choose a cell from 1 to 9.")
+                    print("Elige una celda del 1 al 9.")
                 else:
-                    print("That cell is already occupied.")
+                    print("Esa celda ya está ocupada.")
                 continue
             return move
         except ValueError:
-            print("Enter a number from 1 to 9.")
+            print("Ingresa un número del 1 al 9.")
 
 
 def run_game(
     human_first: bool = False,
     seed: int | None = None,
-    difficulty: str = HARD,
+    difficulty: str = EXPERTO,
 ) -> int:
     human, robot = (X, O) if human_first else (O, X)
     turn = X
     board = Board()
 
-    print("TRIQUI — Human vs Robot")
-    print(f"\nRobot: {robot}\nHuman: {human}\n")
+    print("TRIQUI — Humano contra Robot")
+    print(f"\nRobot: {robot}\nHumano: {human}\n")
     _print_board(board)
 
     while not board.is_game_over():
@@ -95,22 +106,31 @@ def run_game(
             move = _ask_human_move(board)
             board.make_move(move, human)
         else:
-            move = choose_move(board, robot, human, difficulty, seed)
-            if move is None:
+            decision = choose_robot_decision(board, robot, human, difficulty, seed)
+            if decision is None:
                 break
-            board.make_move(move, robot)
-            print(f"Robot plays: {move}")
+            if decision.action == PICARO_ACTION:
+                cells = list(board.cells)
+                cells[decision.cell - 1] = robot
+                board = Board(cells)
+                print(
+                    "Robot usa modo PÍCARO: reemplaza la ficha humana "
+                    f"de la celda {decision.cell}."
+                )
+            else:
+                board.make_move(decision.cell, robot)
+                print(f"Robot juega en la celda {decision.cell}.")
         print()
         _print_board(board)
         turn = O if turn == X else X
 
     winner = board.winner()
     if winner == robot:
-        print("\nROBOT WINS")
+        print("\nGANA EL ROBOT")
     elif winner == human:
-        print("\nHUMAN WINS")
+        print("\nGANA EL HUMANO")
     else:
-        print("\nDRAW")
+        print("\nEMPATE")
     return 0
 
 

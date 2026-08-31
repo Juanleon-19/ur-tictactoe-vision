@@ -231,15 +231,23 @@ python main.py vision
 Jugar manualmente contra el motor, sin cámara ni robot:
 
 ```powershell
-python main.py game --difficulty hard --seed 42
-python main.py game --difficulty intermediate --seed 42
-python main.py game --human-first --difficulty intermediate --seed 42
+python main.py game --difficulty experto --seed 42
+python main.py game --difficulty intermedio --seed 42
+python main.py game --difficulty picaro --seed 42
+python main.py game --human-first --difficulty intermedio --seed 42
 ```
 
-La dificultad predeterminada es `hard`. Este modo conserva el Minimax perfecto;
-`intermediate` usa búsqueda limitada y puede cometer errores estratégicos de
-horizonte. La representación, las reglas y ambos algoritmos se explican en
+La dificultad predeterminada es `experto`. Este modo conserva el Minimax perfecto;
+`intermedio` usa búsqueda limitada y puede cometer errores estratégicos de
+horizonte. `picaro` usa Minimax completo y, cuando no puede forzar una victoria,
+puede sustituir estratégicamente una ficha humana por una propia. Por compatibilidad
+se aceptan también `hard` e `intermediate`. La representación, las reglas y los
+algoritmos se explican en
 [`docs/game-engine.md`](docs/game-engine.md).
+
+**Modo PÍCARO — Feature post-MVP.** La lógica de juego está implementada y
+probada. La integración física con Modbus y PolyScope queda pendiente. No forma
+parte del flujo normal actualmente integrado en `main`.
 
 En Windows, listar la información PnP disponible y probar secuencialmente los índices `0..5` con los backends `AUTO`, `DSHOW` y `MSMF`:
 

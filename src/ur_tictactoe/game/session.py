@@ -3,7 +3,17 @@
 from __future__ import annotations
 
 from ur_tictactoe.game.engine import Board, O, X
-from ur_tictactoe.game.minimax import HARD, INTERMEDIATE, choose_move
+from ur_tictactoe.game.minimax import (
+    EXPERTO,
+    HARD,
+    INTERMEDIO,
+    INTERMEDIATE,
+    NORMAL_ACTION,
+    PICARO,
+    PICARO_ACTION,
+    RobotDecision,
+    choose_robot_decision,
+)
 
 HUMAN = "human"
 ROBOT = "robot"
@@ -23,7 +33,7 @@ class GameSession:
         human_first: bool = False,
         seed: int | None = None,
     ) -> None:
-        if difficulty not in (HARD, INTERMEDIATE):
+        if difficulty not in (HARD, INTERMEDIATE, EXPERTO, INTERMEDIO, PICARO):
             raise ValueError(f"Unknown difficulty: {difficulty}")
 
         self.board = Board()
@@ -33,6 +43,7 @@ class GameSession:
         self.robot = O if human_first else X
         self.turn: str | None = HUMAN if human_first else ROBOT
         self.pending_robot_move: int | None = None
+        self.pending_robot_decision: RobotDecision | None = None
 
     @property
     def result(self) -> str:
@@ -61,34 +72,45 @@ class GameSession:
         self._require_active()
         if self.turn != ROBOT:
             raise ValueError("It is not the robot's turn")
-        if self.pending_robot_move is not None:
+        if self.pending_robot_decision is not None:
             raise ValueError("A robot move is already pending")
 
-        move = choose_move(
+        decision = choose_robot_decision(
             self.board,
             self.robot,
             self.human,
             self.difficulty,
             self.seed,
         )
-        if move is None:
+        if decision is None:
             raise ValueError("No legal robot move is available")
-        self.pending_robot_move = move
-        return move
+        self.pending_robot_decision = decision
+        self.pending_robot_move = decision.cell
+        return decision.cell
 
     def confirm_robot_move(self) -> None:
         self._require_active()
-        if self.pending_robot_move is None:
+        if self.pending_robot_decision is None:
             raise ValueError("There is no pending robot move to confirm")
 
-        self.board.make_move(self.pending_robot_move, self.robot)
+        decision = self.pending_robot_decision
+        if decision.action == NORMAL_ACTION:
+            self.board.make_move(decision.cell, self.robot)
+        elif decision.action == PICARO_ACTION:
+            if self.board.cell(decision.cell) != self.human:
+                raise ValueError("The Pícaro target is no longer a human cell")
+            cells = list(self.board.cells)
+            cells[decision.cell - 1] = self.robot
+            self.board = Board(cells)
         self.pending_robot_move = None
+        self.pending_robot_decision = None
         self.turn = None if self.board.is_game_over() else HUMAN
 
     def cancel_robot_move(self) -> None:
-        if self.pending_robot_move is None:
+        if self.pending_robot_decision is None:
             raise ValueError("There is no pending robot move to cancel")
         self.pending_robot_move = None
+        self.pending_robot_decision = None
 
     def _require_active(self) -> None:
         if not self.is_active:
