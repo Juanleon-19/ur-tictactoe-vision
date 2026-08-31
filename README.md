@@ -228,6 +228,19 @@ Ejecutar la visión en tiempo real:
 python main.py vision
 ```
 
+Validar con cámara la desaparición estable de un marcador de celda como jugada
+humana, sin ejecutar el juego ni comunicarse con el robot:
+
+```powershell
+python main.py move-detect
+python main.py move-detect --stable-frames 8
+```
+
+El modo usa la misma configuración de `vision.local.yaml`. Con los 13 ArUco
+visibles debe indicar `FRAME READY` y `Cell markers visible 9/9`. Al cubrir un
+único marcador de celda durante el número configurado de frames, muestra e imprime
+`HUMAN MOVE: CELL N`. Se cierra con `q` o `Esc`.
+
 Jugar manualmente contra el motor, sin cámara ni robot:
 
 ```powershell
