@@ -10,6 +10,14 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ur_tictactoe.config import load_vision_config
+from ur_tictactoe.communication import (
+    COMMAND_REGISTER,
+    STATUS_BUSY,
+    STATUS_DONE,
+    STATUS_ERROR,
+    STATUS_READY,
+    ModbusClient,
+)
 from ur_tictactoe.game import HARD, INTERMEDIATE, Board, O, X, choose_move
 from ur_tictactoe.vision.app import run_board_observer, run_move_detection, run_vision
 from ur_tictactoe.vision.aruco import ARUCO_PROFILES
@@ -85,7 +93,45 @@ def build_parser() -> argparse.ArgumentParser:
         default=HARD,
         help="Robot difficulty (default: hard)",
     )
+    modbus_parser = subparsers.add_parser(
+        "modbus-check", help="Read one Modbus STATUS value (read-only by default)"
+    )
+    modbus_parser.add_argument("--host", required=True, help="Robot or URSim host")
+    modbus_parser.add_argument("--port", type=int, default=502)
+    modbus_parser.add_argument("--command", type=int, choices=range(1, 10))
+    modbus_parser.add_argument(
+        "--allow-write",
+        action="store_true",
+        help="Explicitly allow writing COMMAND_REGISTER",
+    )
     return parser
+
+
+STATUS_NAMES = {
+    STATUS_READY: "READY",
+    STATUS_BUSY: "BUSY",
+    STATUS_DONE: "DONE",
+    STATUS_ERROR: "ERROR",
+}
+
+
+def run_modbus_check(args: argparse.Namespace, client_factory=ModbusClient) -> int:
+    if args.command is not None and not args.allow_write:
+        print("ERROR: --command requires --allow-write.", file=sys.stderr)
+        return 2
+
+    client = client_factory(args.host, port=args.port)
+    try:
+        client.connect()
+        print("CONNECTION OK")
+        status = client.read_status()
+        print(f"STATUS = {STATUS_NAMES[status]}")
+        if args.command is not None:
+            print(f"WRITING COMMAND_REGISTER={COMMAND_REGISTER}: {args.command}")
+            client.write_command(args.command)
+        return 0
+    finally:
+        client.close()
 
 
 def _print_board(board: Board) -> None:
@@ -176,6 +222,9 @@ def main() -> int:
 
     if args.command == "game":
         return run_game(args.human_first, args.seed, args.difficulty)
+
+    if args.command == "modbus-check":
+        return run_modbus_check(args)
 
     return 0
 
