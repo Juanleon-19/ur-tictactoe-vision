@@ -9,6 +9,7 @@ from ur_tictactoe.config import CELL_IDS, FRAME_IDS
 
 TEST_BOARD_SIZE = (1920, 1080)
 TEST_BOARD_DICTIONARY = "DICT_5X5_50"
+ARUCO_PROFILES = ("default", "robust")
 
 
 @dataclass(frozen=True)
@@ -21,14 +22,31 @@ class DetectionResult:
         return set(self.ids)
 
 
+def build_detector_parameters(profile: str = "default"):
+    if profile not in ARUCO_PROFILES:
+        raise ValueError(f"Unknown ArUco profile: {profile}")
+
+    parameters = cv2.aruco.DetectorParameters()
+    if profile == "robust":
+        # Keep the default window range, but sample it more granularly.
+        parameters.adaptiveThreshWinSizeStep = 4
+        if hasattr(cv2.aruco, "CORNER_REFINE_SUBPIX"):
+            parameters.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+        if hasattr(parameters, "useAruco3Detection"):
+            parameters.useAruco3Detection = True
+    return parameters
+
+
 class ArucoDetector:
-    def __init__(self, dictionary_name: str) -> None:
+    def __init__(self, dictionary_name: str, profile: str = "default") -> None:
         if not hasattr(cv2.aruco, dictionary_name):
             raise ValueError(f"Unknown ArUco dictionary: {dictionary_name}")
 
         dictionary_id = getattr(cv2.aruco, dictionary_name)
         dictionary = cv2.aruco.getPredefinedDictionary(dictionary_id)
-        parameters = cv2.aruco.DetectorParameters()
+        parameters = build_detector_parameters(profile)
+        self.profile = profile
+        self.parameters = parameters
         self._detector = cv2.aruco.ArucoDetector(dictionary, parameters)
 
     def detect(self, frame: np.ndarray) -> DetectionResult:

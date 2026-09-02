@@ -209,6 +209,48 @@ Estas carpetas futuras no deben crearse hasta que comience su fase correspondien
 
 ## Robustez opcional
 
+### Observación física temporal
+
+`BoardObserver` mantiene una ventana temporal de detecciones y solo calcula
+ocupación con muestras que contienen los cuatro frame IDs. Produce un
+`PhysicalBoardState` independiente de `GameSession`, sin propietario X/O:
+
+```text
+IDs ArUco -> BoardObserver -> FREE / OCCUPIED / UNCERTAIN / NOT_READY
+```
+
+La integración futura durante el turno humano será:
+
+```text
+PhysicalBoardState
+  -> comparar con Board lógico
+  -> new_cells = physical_occupied - logical_occupied
+```
+
+En modo normal se aceptará una jugada solo si aparece exactamente una celda
+nueva y no desaparece ninguna ocupada. Ante cambios múltiples se esperará otro
+estado estable o se invalidará la observación.
+
+Después de un movimiento robot, `STATUS DONE` activará la observación y se
+verificará que la celda esperada quedó `OCCUPIED` antes de llamar a
+`confirm_robot_move()`. Esta integración está documentada, no implementada.
+
+### Preparación del futuro modo PÍCARO
+
+El observador actual maneja únicamente ocupación. Más adelante, las X físicas
+verdes y los círculos amarillos sobre el tablero plateado podrán distinguirse
+por color mediante HSV/ROI. No se prevé reconocer la geometría X/O y todavía no
+existe código HSV.
+
+### Distribución futura
+
+El producto final será una aplicación de escritorio Windows, no una aplicación
+web. Permitirá seleccionar modo de juego, quién inicia e iniciar una partida.
+La ruta prevista es aplicación Python -> PyInstaller o equivalente -> aplicación
+distribuible -> instalador `.exe` (por ejemplo, Inno Setup), incluyendo las
+dependencias para no exigir una instalación manual de Python. No se implementa
+GUI, empaquetado ni instalador en esta tarea.
+
 La Fase 7 puede incorporar, solo con evidencia experimental:
 
 ```text

@@ -3,9 +3,31 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
-from ur_tictactoe.vision.aruco import ArucoDetector
+from ur_tictactoe.vision.aruco import ArucoDetector, build_detector_parameters
 
 APPROVED_IDS = {0, 1, 2, 3, 10, 11, 12, 13, 14, 15, 16, 17, 18}
+
+
+def test_default_profile_preserves_opencv_defaults() -> None:
+    expected = cv2.aruco.DetectorParameters()
+    actual = build_detector_parameters("default")
+
+    assert actual.adaptiveThreshWinSizeStep == expected.adaptiveThreshWinSizeStep
+    assert actual.cornerRefinementMethod == expected.cornerRefinementMethod
+    if hasattr(expected, "useAruco3Detection"):
+        assert actual.useAruco3Detection == expected.useAruco3Detection
+
+
+def test_robust_profile_uses_supported_conservative_options() -> None:
+    parameters = build_detector_parameters("robust")
+
+    assert parameters.adaptiveThreshWinSizeMin == 3
+    assert parameters.adaptiveThreshWinSizeMax == 23
+    assert parameters.adaptiveThreshWinSizeStep == 4
+    if hasattr(cv2.aruco, "CORNER_REFINE_SUBPIX"):
+        assert parameters.cornerRefinementMethod == cv2.aruco.CORNER_REFINE_SUBPIX
+    if hasattr(parameters, "useAruco3Detection"):
+        assert parameters.useAruco3Detection is True
 
 
 def test_detects_generated_marker() -> None:

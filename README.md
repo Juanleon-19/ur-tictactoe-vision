@@ -226,7 +226,22 @@ Ejecutar la visión en tiempo real:
 
 ```powershell
 python main.py vision
+python main.py vision --aruco-profile robust
 ```
+
+Observar automáticamente el estado físico temporal del tablero, sin botones ni
+confirmación manual:
+
+```powershell
+python main.py board-observe --aruco-profile default
+python main.py board-observe --aruco-profile robust
+```
+
+El comando muestra preview, FPS, perfil, readiness, ratios por celda y estados
+`FREE`, `OCCUPIED` o `UNCERTAIN`. Al cerrar imprime la estabilidad de detección
+de los 13 IDs. Los parámetros experimentales de ventana, evaluación, histéresis,
+umbrales y mínimo de muestras válidas están en `config/vision.example.yaml` y
+pueden sobrescribirse en la configuración local ignorada por Git.
 
 Validar con cámara la desaparición estable de un marcador de celda como jugada
 humana, sin ejecutar el juego ni comunicarse con el robot:

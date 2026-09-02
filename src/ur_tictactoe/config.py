@@ -58,6 +58,7 @@ class VisionConfig:
     camera: CameraConfig
     aruco: ArucoConfig
     ui: UIConfig
+    observer: "ObserverConfig"
 
 
 def _section(data: dict[str, Any], name: str) -> dict[str, Any]:
@@ -75,6 +76,7 @@ def _parse_ids(raw: dict[str, Any], key: str, default: list[int]) -> tuple[int, 
 
 
 def load_vision_config(path: Path) -> VisionConfig:
+    from ur_tictactoe.vision.board_observer import ObserverConfig
     if not path.exists():
         raise FileNotFoundError(f"Vision configuration not found: {path}")
 
@@ -87,6 +89,7 @@ def load_vision_config(path: Path) -> VisionConfig:
     camera_raw = _section(raw, "camera")
     aruco_raw = _section(raw, "aruco")
     ui_raw = _section(raw, "ui")
+    observer_raw = _section(raw, "observer")
 
     frame_ids = _parse_ids(aruco_raw, "frame_ids", list(FRAME_IDS))
     cell_ids = _parse_ids(
@@ -123,5 +126,15 @@ def load_vision_config(path: Path) -> VisionConfig:
             window_name=str(ui_raw.get("window_name", "UR Tic-Tac-Toe Vision")),
             show_fps=bool(ui_raw.get("show_fps", True)),
             show_marker_centers=bool(ui_raw.get("show_marker_centers", True)),
+        ),
+        observer=ObserverConfig(
+            window_seconds=float(observer_raw.get("window_seconds", 1.5)),
+            evaluation_period_seconds=float(
+                observer_raw.get("evaluation_period_seconds", 0.25)
+            ),
+            state_change_seconds=float(observer_raw.get("state_change_seconds", 0.5)),
+            free_ratio=float(observer_raw.get("free_ratio", 0.70)),
+            occupied_ratio=float(observer_raw.get("occupied_ratio", 0.20)),
+            min_valid_samples=int(observer_raw.get("min_valid_samples", 3)),
         ),
     )

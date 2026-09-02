@@ -19,3 +19,11 @@ ui:
   window_name: UR Tic-Tac-Toe Vision
   show_fps: true
   show_marker_centers: true
+
+observer:
+  window_seconds: 1.5
+  evaluation_period_seconds: 0.25
+  state_change_seconds: 0.5
+  free_ratio: 0.70
+  occupied_ratio: 0.20
+  min_valid_samples: 3

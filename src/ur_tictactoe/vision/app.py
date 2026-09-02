@@ -6,6 +6,11 @@ import cv2
 
 from ur_tictactoe.config import VisionConfig
 from ur_tictactoe.vision.aruco import ArucoDetector, draw_detections
+from ur_tictactoe.vision.board_observer import (
+    ArucoStabilityMetrics,
+    BoardObserver,
+    PhysicalBoardState,
+)
 from ur_tictactoe.vision.camera import Camera
 from ur_tictactoe.vision.marker_status import calculate_marker_status
 from ur_tictactoe.vision.move_detector import HumanMoveDetector
@@ -24,8 +29,8 @@ def _draw_status(frame, text: str, y: int) -> None:
     )
 
 
-def run_vision(config: VisionConfig) -> int:
-    detector = ArucoDetector(config.aruco.dictionary)
+def run_vision(config: VisionConfig, aruco_profile: str = "default") -> int:
+    detector = ArucoDetector(config.aruco.dictionary, aruco_profile)
     previous_time = time.perf_counter()
     fps = 0.0
 
@@ -35,6 +40,7 @@ def run_vision(config: VisionConfig) -> int:
             cv2.namedWindow(config.ui.window_name, cv2.WINDOW_NORMAL)
             print(f"Camera backend: {config.camera.backend}")
             print(f"Camera index: {config.camera.index}")
+            print(f"ArUco profile: {aruco_profile}")
             print(
                 f"Requested camera: {config.camera.width}x{config.camera.height} "
                 f"@ {config.camera.fps} FPS"
@@ -192,6 +198,110 @@ def run_move_detection(config: VisionConfig, stable_frames: int = 5) -> int:
                 if key in (ord("q"), 27):
                     break
 
+    except RuntimeError as exc:
+        print(f"[ERROR] {exc}")
+        return 1
+    finally:
+        cv2.destroyAllWindows()
+
+    return 0
+
+
+def _print_board_state(state: PhysicalBoardState) -> None:
+    readiness = "READY" if state.ready else "NOT READY"
+    print(
+        f"\nBOARD STATE - {readiness} "
+        f"({state.valid_samples}/{state.total_samples} valid, "
+        f"{state.frame_readiness_ratio:.0%} frame readiness)"
+    )
+    for cell in range(1, 10):
+        print(
+            f"{cell} {state.cells[cell].value:<9} "
+            f"{state.visibility_ratio[cell]:6.1%}"
+        )
+
+
+def _print_stability(metrics: ArucoStabilityMetrics) -> None:
+    print(
+        "\nARUCO STABILITY "
+        f"({metrics.valid_samples}/{metrics.total_samples} valid frames, "
+        f"{metrics.frame_readiness_ratio:.1%} readiness)"
+    )
+    print("ID    all frames   valid frames")
+    for marker_id in metrics.marker_ids:
+        print(
+            f"ID {marker_id:2}: {metrics.all_frame_ratio(marker_id):9.1%} "
+            f"{metrics.valid_frame_ratio(marker_id):12.1%}"
+        )
+
+
+def run_board_observer(config: VisionConfig, aruco_profile: str = "default") -> int:
+    """Continuously observe physical occupancy without changing GameSession."""
+    detector = ArucoDetector(config.aruco.dictionary, aruco_profile)
+    observer = BoardObserver(config.observer)
+    stability = ArucoStabilityMetrics()
+    previous_time = time.perf_counter()
+    fps = 0.0
+    previous_signature = None
+
+    try:
+        with Camera(config.camera) as camera:
+            cv2.namedWindow(config.ui.window_name, cv2.WINDOW_NORMAL)
+            print(f"ArUco profile: {aruco_profile}")
+            print(
+                "[INFO] Automatic board observation running. "
+                "Press q or Esc to close."
+            )
+
+            while True:
+                frame = camera.read()
+                result = detector.detect(frame)
+                stability.update(result.id_set)
+                display = draw_detections(
+                    frame, result, show_centers=config.ui.show_marker_centers
+                )
+                now = time.perf_counter()
+                delta = now - previous_time
+                previous_time = now
+                if delta > 0:
+                    instantaneous_fps = 1.0 / delta
+                    fps = instantaneous_fps if fps == 0 else 0.9 * fps + 0.1 * instantaneous_fps
+
+                evaluated = observer.update(result.id_set, now)
+                state = observer.state
+                if evaluated is not None:
+                    signature = (state.ready, tuple(state.cells.items()))
+                    if signature != previous_signature:
+                        _print_board_state(state)
+                        previous_signature = signature
+
+                _draw_status(
+                    display,
+                    "FRAME READY" if state.ready else "FRAME NOT READY",
+                    30,
+                )
+                _draw_status(display, f"ArUco profile: {aruco_profile}", 60)
+                _draw_status(display, f"FPS: {fps:.1f}", 90)
+                _draw_status(
+                    display,
+                    f"Valid samples: {state.valid_samples}/{state.total_samples} "
+                    f"({state.frame_readiness_ratio:.0%})",
+                    120,
+                )
+                for cell in range(1, 10):
+                    _draw_status(
+                        display,
+                        f"{cell}: {state.cells[cell].value} "
+                        f"{state.visibility_ratio[cell]:.0%}",
+                        150 + (cell - 1) * 28,
+                    )
+
+                cv2.imshow(config.ui.window_name, display)
+                key = cv2.waitKey(1) & 0xFF
+                if key in (ord("q"), 27):
+                    break
+
+        _print_stability(stability)
     except RuntimeError as exc:
         print(f"[ERROR] {exc}")
         return 1
