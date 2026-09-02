@@ -10,6 +10,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ur_tictactoe.config import load_vision_config
+from ur_tictactoe.desktop.tk_app import run_desktop_app
 from ur_tictactoe.communication import (
     COMMAND_REGISTER,
     STATUS_BUSY,
@@ -103,6 +104,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-write",
         action="store_true",
         help="Explicitly allow writing COMMAND_REGISTER",
+    )
+    app_parser = subparsers.add_parser("app", help="Open the Windows desktop application")
+    app_parser.add_argument(
+        "--simulate", action="store_true", help="Run without camera, robot, or sockets"
     )
     return parser
 
@@ -225,6 +230,9 @@ def main() -> int:
 
     if args.command == "modbus-check":
         return run_modbus_check(args)
+
+    if args.command == "app":
+        return run_desktop_app(args.simulate)
 
     return 0
 
