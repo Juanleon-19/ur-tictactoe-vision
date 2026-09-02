@@ -1,0 +1,155 @@
+# UR Tic-Tac-Toe V1 controller
+# STATUS: PREPARED FOR PHYSICAL VALIDATION - NOT PHYSICALLY VALIDATED
+
+def triqui_controller():
+  # Existing V1 Modbus contract. Do not add registers here.
+  global COMMAND_REGISTER = 128
+  global STATUS_REGISTER = 129
+  global COMMAND_IDLE = 0
+  global STATUS_READY = 0
+  global STATUS_BUSY = 1
+  global STATUS_DONE = 2
+  global STATUS_ERROR = 3
+
+  # 0 = NO MOTION, 1 = SAFE GRID ONLY, 2 = PICK AND PLACE.
+  global MOTION_MODE = 0
+
+  # REQUIRED PHYSICAL CONFIGURATION. Values are intentionally unset.
+  global GEOMETRY_CONFIGURED = False
+  global ORIENTATION_CONFIGURED = False
+  global GRID_DX = 0.0
+  global GRID_DY = 0.0
+  global CELL1_X = 0.0
+  global CELL1_Y = 0.0
+  global Z_SAFE = 0.0
+  global Z_PLACE = 0.0
+  global CELL_RX = 0.0
+  global CELL_RY = 0.0
+  global CELL_RZ = 0.0
+
+  # Conservative initial test values. Validate on the real robot before mode 1.
+  global TEST_JOINT_ACCELERATION = 0.1
+  global TEST_JOINT_SPEED = 0.1
+
+  def cell_relative_pose(cell, z):
+    local column = 0
+    local row = 0
+    if (cell >= 7):
+      row = 2
+      column = cell - 7
+    elif (cell >= 4):
+      row = 1
+      column = cell - 4
+    else:
+      row = 0
+      column = cell - 1
+    end
+    return p[CELL1_X + column * GRID_DX,
+             CELL1_Y + row * GRID_DY,
+             z, CELL_RX, CELL_RY, CELL_RZ]
+  end
+
+  def open_gripper():
+    textmsg("STUB open_gripper: hardware interface not configured")
+    return False
+  end
+
+  def close_gripper():
+    textmsg("STUB close_gripper: hardware interface not configured")
+    return False
+  end
+
+  def take_robot_piece():
+    textmsg("STUB take_robot_piece: feeder or fixed PICK not configured")
+    return False
+  end
+
+  def move_to_cell_safe(cell):
+    if ((GEOMETRY_CONFIGURED == False) or (ORIENTATION_CONFIGURED == False)):
+      textmsg("SAFE GRID blocked: geometry or orientation is not configured")
+      return False
+    end
+
+    # TABLERO must be the Plane Feature pose created in the active Installation.
+    local cell_safe = pose_trans(TABLERO, cell_relative_pose(cell, Z_SAFE))
+    textmsg("SAFE GRID cell", cell)
+    textmsg("SAFE GRID pose", cell_safe)
+    movej(get_inverse_kin(cell_safe),
+          a=TEST_JOINT_ACCELERATION, v=TEST_JOINT_SPEED)
+    return True
+  end
+
+  def prepare_pick_and_place(cell):
+    if ((GEOMETRY_CONFIGURED == False) or (ORIENTATION_CONFIGURED == False)):
+      textmsg("PICK AND PLACE blocked: geometry or orientation is not configured")
+      return False
+    end
+    local cell_safe = pose_trans(TABLERO, cell_relative_pose(cell, Z_SAFE))
+    local cell_place = pose_trans(TABLERO, cell_relative_pose(cell, Z_PLACE))
+    textmsg("PICK AND PLACE cell", cell)
+    textmsg("PICK AND PLACE safe", cell_safe)
+    textmsg("PICK AND PLACE place", cell_place)
+    textmsg("Feeder, gripper and place sequence are not configured")
+    return False
+  end
+
+  def execute_cell(cell):
+    if (MOTION_MODE == 0):
+      textmsg("NO MOTION - CELL", cell)
+      return True
+    elif (MOTION_MODE == 1):
+      return move_to_cell_safe(cell)
+    elif (MOTION_MODE == 2):
+      return prepare_pick_and_place(cell)
+    else:
+      textmsg("Invalid MOTION_MODE", MOTION_MODE)
+      return False
+    end
+  end
+
+  global controller_status = STATUS_READY
+  write_port_register(STATUS_REGISTER, controller_status)
+  textmsg("Triqui controller ready; MOTION_MODE", MOTION_MODE)
+
+  while (True):
+    local command = read_port_register(COMMAND_REGISTER)
+
+    if ((command < 0) or (command > 9)):
+      if (controller_status != STATUS_ERROR):
+        controller_status = STATUS_ERROR
+        write_port_register(STATUS_REGISTER, controller_status)
+        textmsg("Invalid COMMAND", command)
+      end
+    elif (controller_status == STATUS_READY):
+      if (command == COMMAND_IDLE):
+        # Remain READY.
+      else:
+        controller_status = STATUS_BUSY
+        write_port_register(STATUS_REGISTER, controller_status)
+        textmsg("BUSY CELL", command)
+        if (execute_cell(command)):
+          controller_status = STATUS_DONE
+        else:
+          controller_status = STATUS_ERROR
+        end
+        write_port_register(STATUS_REGISTER, controller_status)
+      end
+    elif (controller_status == STATUS_DONE):
+      if (command == COMMAND_IDLE):
+        controller_status = STATUS_READY
+        write_port_register(STATUS_REGISTER, controller_status)
+      end
+      # A nonzero command is intentionally ignored to prevent duplicate motion.
+    elif (controller_status == STATUS_ERROR):
+      if (command == COMMAND_IDLE):
+        controller_status = STATUS_READY
+        write_port_register(STATUS_REGISTER, controller_status)
+      end
+      # Clear ERROR with COMMAND=0 before accepting another cell.
+    end
+
+    sleep(0.05)
+  end
+end
+
+triqui_controller()
