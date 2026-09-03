@@ -26,6 +26,9 @@ class FakeClient:
     def close(self) -> None:
         self.closed = True
 
+    def clear_command(self) -> None:
+        self.writes.append(0)
+
 
 def test_modbus_check_is_read_only_by_default(capsys) -> None:
     FakeClient.instances.clear()
@@ -62,3 +65,22 @@ def test_modbus_check_explicit_write_reports_register(capsys) -> None:
     assert run_modbus_check(args, FakeClient) == 0
     assert FakeClient.instances[-1].writes == [5]
     assert "COMMAND_REGISTER=128" in capsys.readouterr().out
+
+
+def test_modbus_handshake_observes_busy_done_hold_and_ready(capsys) -> None:
+    class HandshakeClient(FakeClient):
+        def __init__(self, host: str, port: int) -> None:
+            super().__init__(host, port)
+            self.statuses = iter((STATUS_READY, 1, 2, 2, STATUS_READY))
+
+        def read_status(self) -> int:
+            return next(self.statuses)
+
+    args = build_parser().parse_args(
+        ["modbus-check", "--host", "test-host", "--handshake", "5"]
+    )
+    assert run_modbus_check(args, HandshakeClient) == 0
+    assert HandshakeClient.instances[-1].writes == [5, 0]
+    output = capsys.readouterr().out
+    assert "STATUS = BUSY" in output
+    assert "STATUS HELD = DONE" in output

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -101,6 +102,12 @@ def build_parser() -> argparse.ArgumentParser:
     modbus_parser.add_argument("--port", type=int, default=502)
     modbus_parser.add_argument("--command", type=int, choices=range(1, 10))
     modbus_parser.add_argument(
+        "--handshake",
+        type=int,
+        choices=range(1, 10),
+        help="Verify READY/BUSY/DONE/reset without integrating gameplay",
+    )
+    modbus_parser.add_argument(
         "--allow-write",
         action="store_true",
         help="Explicitly allow writing COMMAND_REGISTER",
@@ -121,6 +128,9 @@ STATUS_NAMES = {
 
 
 def run_modbus_check(args: argparse.Namespace, client_factory=ModbusClient) -> int:
+    if args.command is not None and args.handshake is not None:
+        print("ERROR: --command and --handshake are mutually exclusive.", file=sys.stderr)
+        return 2
     if args.command is not None and not args.allow_write:
         print("ERROR: --command requires --allow-write.", file=sys.stderr)
         return 2
@@ -131,12 +141,47 @@ def run_modbus_check(args: argparse.Namespace, client_factory=ModbusClient) -> i
         print("CONNECTION OK")
         status = client.read_status()
         print(f"STATUS = {STATUS_NAMES[status]}")
+        if args.handshake is not None:
+            if status != STATUS_READY:
+                print("ERROR: handshake must start in READY.", file=sys.stderr)
+                return 1
+            command = args.handshake
+            print(f"WRITING COMMAND_REGISTER={COMMAND_REGISTER}: {command}")
+            client.write_command(command)
+            try:
+                if not _wait_for_status(client, STATUS_BUSY):
+                    return 1
+                if not _wait_for_status(client, STATUS_DONE):
+                    return 1
+                time.sleep(0.1)
+                held = client.read_status()
+                print(f"STATUS HELD = {STATUS_NAMES[held]}")
+                if held != STATUS_DONE:
+                    return 1
+            finally:
+                print(f"CLEARING COMMAND_REGISTER={COMMAND_REGISTER}: 0")
+                client.clear_command()
+            return 0 if _wait_for_status(client, STATUS_READY) else 1
         if args.command is not None:
             print(f"WRITING COMMAND_REGISTER={COMMAND_REGISTER}: {args.command}")
             client.write_command(args.command)
         return 0
     finally:
         client.close()
+
+
+def _wait_for_status(client: ModbusClient, expected: int) -> bool:
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        status = client.read_status()
+        print(f"STATUS = {STATUS_NAMES[status]}")
+        if status == expected:
+            return True
+        if status == STATUS_ERROR:
+            return False
+        time.sleep(0.02)
+    print(f"ERROR: timeout waiting for {STATUS_NAMES[expected]}.", file=sys.stderr)
+    return False
 
 
 def _print_board(board: Board) -> None:

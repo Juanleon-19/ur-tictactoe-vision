@@ -96,6 +96,8 @@ def triqui_controller():
   def execute_cell(cell):
     if (MOTION_MODE == 0):
       textmsg("NO MOTION - CELL", cell)
+      # Keep BUSY externally observable without performing any physical action.
+      sleep(0.1)
       return True
     elif (MOTION_MODE == 1):
       return move_to_cell_safe(cell)

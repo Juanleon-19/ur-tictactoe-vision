@@ -96,11 +96,31 @@ modifican los registros 128/129.
 
 ## Validación física pendiente
 
+## Carga en UR3 CB3 con PolyScope 3.14
+
+1. Copiar al USB exactamente `robot/urscript/triqui_controller.script`.
+2. Insertar el USB en el controlador y crear o abrir un programa en PolyScope.
+3. En **Program > Structure > Advanced**, añadir un nodo **Script**.
+4. En el nodo Script, seleccionar **File**, buscar el USB y elegir
+   `triqui_controller.script`.
+5. Antes de Play, comprobar que `MOTION_MODE = 0`, COMMAND 128 vale 0, el área
+   del robot está despejada y es posible detener el programa desde el teach pendant.
+
+En modo 0 no hacen falta todavía el Feature `TABLERO`, TCP/payload definitivos,
+geometría de cuadrícula, poses, alimentador ni gripper. Esos datos permanecen
+bloqueados para los modos de movimiento posteriores.
+
 ### UR-1 — Modbus NO MOTION
 
 Con `MOTION_MODE = 0`, el PC escribe COMMAND 128=5. El UR debe leer 5, publicar
 BUSY, emitir `textmsg` para CELL 5 y publicar DONE. El PC escribe COMMAND=0 y el
 UR vuelve a READY. PASS: handshake completo sin movimiento.
+
+Una vez cargado y ejecutándose el controlador, lanzar manualmente desde el PC:
+
+```powershell
+python main.py modbus-check --host 192.168.1.10 --handshake 5
+```
 
 ### UR-2 — Feature SAFE GRID
 
@@ -116,14 +136,15 @@ lógicas.
 
 Estas pruebas no se ejecutan en esta tarea.
 
-## Compatibilidad por confirmar
+## Compatibilidad CB3 PolyScope 3.14
 
-La versión exacta de PolyScope aún no se conoce. Deben comprobarse:
+Para el UR3 CB3 confirmado con PolyScope 3.14, la sintaxis usada de
+`read_port_register`, `write_port_register`, `pose_trans`, `get_inverse_kin`,
+`movej`, `sleep` y `textmsg` es compatible con el manual URScript de esa serie.
+Queda por comprobar físicamente:
 
 - carga del archivo completo mediante Script node/File;
-- nombre generado/resoluble para el Feature `TABLERO`;
-- disponibilidad y firmas de `read_port_register`, `write_port_register`,
-  `pose_trans`, `get_inverse_kin`, `movej`, `sleep` y `textmsg`;
+- nombre generado/resoluble para el Feature `TABLERO` cuando se habilite modo 1;
 - comportamiento ante una pose sin solución de cinemática inversa;
 - cómo reflejar paradas y fallos del controlador en el protocolo de aplicación.
 
