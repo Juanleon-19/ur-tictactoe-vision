@@ -5,7 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ur_tictactoe.communication import STATUS_BUSY, STATUS_DONE, STATUS_READY
-from ur_tictactoe.game import ACTIVE, HARD, HUMAN, INTERMEDIATE, GameSession
+from ur_tictactoe.game import (
+    ACTIVE,
+    HARD,
+    HUMAN,
+    INTERMEDIATE,
+    PICARO,
+    PICARO_ACTION,
+    GameSession,
+)
 from ur_tictactoe.runtime import PhysicalGameRuntime, RuntimeState
 from ur_tictactoe.vision.board_observer import CellState, PhysicalBoardState
 
@@ -33,6 +41,9 @@ class ApplicationSnapshot:
     board_status: str
     last_error: str | None
     simulation: bool
+    robot_picaro_available: bool
+    human_picaro_available: bool
+    action_status: str | None
 
 
 class SimulatedModbusClient:
@@ -65,14 +76,24 @@ class GameApplication:
         self.runtime: PhysicalGameRuntime | None = None
         self._physical_occupied: set[int] = set()
         self._last_error: str | None = None
+        self._action_status: str | None = None
+        self._action_status_ticks = 0
 
     def new_game(self, difficulty: str, human_first: bool) -> bool:
-        if difficulty not in (HARD, INTERMEDIATE):
+        if difficulty not in (HARD, INTERMEDIATE, PICARO):
             raise ValueError(f"Unknown difficulty: {difficulty}")
+
+        if difficulty == PICARO and not self.simulation:
+            self.session = None
+            self.runtime = None
+            self._last_error = "PICARO_SIMULATION_ONLY"
+            return False
 
         self.session = GameSession(difficulty, human_first, seed=None)
         self._physical_occupied = set()
         self._last_error = None
+        self._action_status = None
+        self._action_status_ticks = 0
         if not self.simulation:
             self.runtime = None
             self._last_error = "REAL_MODE_NOT_CONFIGURED"
@@ -96,8 +117,26 @@ class GameApplication:
         self._physical_occupied = observed
         return True
 
+    def play_human_picaro(self, cell: int) -> bool:
+        """Apply the human replacement through the simulation-only runtime path."""
+        if not self.simulation or self.runtime is None or self.session is None:
+            return False
+        if self.runtime.state != RuntimeState.WAITING_HUMAN:
+            return False
+        try:
+            self.runtime.confirm_simulated_human_replacement(cell)
+        except ValueError:
+            return False
+        self._action_status = f"Humano usa Pícaro · Celda {cell}"
+        self._action_status_ticks = 20
+        return True
+
     def update(self) -> None:
         """Advance at most one simulated transition for a Tkinter ``after`` tick."""
+        if self._action_status_ticks > 0:
+            self._action_status_ticks -= 1
+            if self._action_status_ticks == 0:
+                self._action_status = None
         if not self.simulation or self.runtime is None:
             return
         if self.runtime.state in (RuntimeState.WAITING_ROBOT, RuntimeState.ROBOT_BUSY):
@@ -105,8 +144,14 @@ class GameApplication:
         elif self.runtime.state == RuntimeState.VERIFYING_ROBOT:
             expected = self.session.pending_robot_move if self.session else None
             if expected is not None:
-                self._physical_occupied.add(expected)
-                self.runtime.update_board(self._physical_state())
+                decision = self.session.pending_robot_decision
+                if decision is not None and decision.action == PICARO_ACTION:
+                    self.runtime.confirm_simulated_robot_replacement()
+                    self._action_status = f"Robot usa Pícaro · Celda {expected}"
+                    self._action_status_ticks = 20
+                else:
+                    self._physical_occupied.add(expected)
+                    self.runtime.update_board(self._physical_state())
 
     def snapshot(self) -> ApplicationSnapshot:
         if self.session is None:
@@ -125,6 +170,9 @@ class GameApplication:
                 board_status="LISTO" if self.simulation else "NO DISPONIBLE",
                 last_error=self._last_error,
                 simulation=self.simulation,
+                robot_picaro_available=False,
+                human_picaro_available=False,
+                action_status=None,
             )
 
         runtime_snapshot = self.runtime.snapshot() if self.runtime else None
@@ -145,6 +193,9 @@ class GameApplication:
             board_status="LISTO" if self.simulation else "NO DISPONIBLE",
             last_error=(runtime_snapshot.last_error if runtime_snapshot else self._last_error),
             simulation=self.simulation,
+            robot_picaro_available=self.session.robot_picaro_available,
+            human_picaro_available=self.session.human_picaro_available,
+            action_status=self._action_status,
         )
 
     def _physical_state(self, occupied: set[int] | None = None) -> PhysicalBoardState:

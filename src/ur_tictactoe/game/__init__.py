@@ -4,8 +4,13 @@ from ur_tictactoe.game.engine import Board, EMPTY, O, X
 from ur_tictactoe.game.minimax import (
     HARD,
     INTERMEDIATE,
+    NORMAL_ACTION,
+    PICARO,
+    PICARO_ACTION,
+    RobotDecision,
     best_move,
     choose_move,
+    choose_robot_decision,
     count_optimal_human_responses,
 )
 from ur_tictactoe.game.session import (
@@ -26,6 +31,10 @@ __all__ = [
     "HUMAN",
     "HUMAN_WINS",
     "INTERMEDIATE",
+    "NORMAL_ACTION",
+    "PICARO",
+    "PICARO_ACTION",
+    "RobotDecision",
     "O",
     "ROBOT",
     "ROBOT_WINS",
@@ -34,5 +43,6 @@ __all__ = [
     "DRAW",
     "best_move",
     "choose_move",
+    "choose_robot_decision",
     "count_optimal_human_responses",
 ]

@@ -13,7 +13,7 @@ from ur_tictactoe.communication import (
     ModbusConnectionError,
     ModbusResponseError,
 )
-from ur_tictactoe.game import HUMAN, ROBOT, GameSession
+from ur_tictactoe.game import HUMAN, PICARO_ACTION, ROBOT, GameSession
 from ur_tictactoe.vision.board_observer import PhysicalBoardState
 
 
@@ -144,6 +144,39 @@ class PhysicalGameRuntime:
             board=self.session.board.cells,
             pending_robot_move=self.session.pending_robot_move,
             last_error=self.last_error,
+        )
+
+    def confirm_simulated_robot_replacement(self) -> None:
+        """Confirm a Pícaro replacement without pretending occupancy can verify it."""
+        decision = self.session.pending_robot_decision
+        if self.state != RuntimeState.VERIFYING_ROBOT or decision is None:
+            raise ValueError("There is no robot replacement awaiting verification")
+        if decision.action != PICARO_ACTION:
+            raise ValueError("The pending robot decision is not a Pícaro replacement")
+        try:
+            self.session.confirm_robot_move()
+            self.modbus_client.clear_command()
+        except (ModbusConnectionError, ModbusResponseError) as exc:
+            self._handle_robot_error(type(exc).__name__, exc)
+            return
+        self.command_sent = False
+        self.last_error = None
+        self.state = (
+            RuntimeState.GAME_OVER
+            if not self.session.is_active
+            else RuntimeState.WAITING_HUMAN
+        )
+
+    def confirm_simulated_human_replacement(self, cell: int) -> None:
+        """Apply a simulated owner change without weakening occupancy checks."""
+        if not self._started or self.state != RuntimeState.WAITING_HUMAN:
+            raise ValueError("The runtime is not waiting for a simulated human action")
+        self.session.play_human_picaro(cell)
+        self.last_error = None
+        self.state = (
+            RuntimeState.GAME_OVER
+            if not self.session.is_active
+            else RuntimeState.WAITING_ROBOT
         )
 
     def _verify_robot_move(self, physical_state: PhysicalBoardState) -> None:

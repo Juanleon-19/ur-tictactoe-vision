@@ -45,13 +45,29 @@ una victoria por empate ni un empate por derrota.
 HARD recorre el árbol completo hasta un estado terminal. Por eso conoce las
 consecuencias de todas las jugadas y, en un tablero 3×3, es invencible.
 
-INTERMEDIATE limita la búsqueda a **2 plies**: una jugada del robot y una respuesta
-humana. El valor permite defender amenazas cercanas sin anticipar todas las
-combinaciones futuras. Antes de buscar, siempre toma una victoria inmediata o
-bloquea una victoria humana inmediata.
+INTERMEDIATE limita la búsqueda a **1 ply**. Antes de evaluar, siempre toma una
+victoria inmediata o bloquea una victoria humana inmediata. Después puntúa líneas
+abiertas, centro y esquinas, y elige con `random.Random(seed)` entre movimientos
+con puntuación óptima o a un punto de ella. Así conserva reproducibilidad y puede
+cometer errores estratégicos sin convertirse en un jugador completamente aleatorio.
 
 Al alcanzar el límite, su heurística suma líneas abiertas del robot, resta líneas
 abiertas del humano y concede valores pequeños al centro y las esquinas. Dos
 marcas en una línea abierta pesan más que una. Esta evaluación produce jugadas
 razonables, pero puede no ver forks que aparecen después del horizonte; por eso
 INTERMEDIATE es fuerte en tácticas inmediatas y aun así puede ser derrotado.
+
+La secuencia humana fija `3, 7, 9, 8`, jugando primero contra robot `O` con seed
+`42`, demuestra esa posibilidad en las pruebas.
+
+## Pícaro simétrico
+
+Una decisión del robot se representa con `RobotDecision(action, cell)`. El robot
+compara el resultado Minimax de su mejor jugada normal con el de su mejor
+reemplazo. Solo devuelve `picaro` si el reemplazo mejora estrictamente el resultado
+esperado; de otro modo conserva el recurso y juega `normal`.
+
+`GameSession` inicia con un uso disponible para el robot y otro para el humano.
+Cada uno puede sustituir exactamente una ficha rival y su recurso queda consumido.
+`play_human_picaro(cell)` valida turno, modo, disponibilidad y propietario antes de
+realizar la sustitución. Esta regla solo está habilitada en simulación.

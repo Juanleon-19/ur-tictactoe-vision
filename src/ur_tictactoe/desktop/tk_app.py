@@ -8,7 +8,15 @@ import customtkinter as ctk
 from ur_tictactoe.desktop.application import GameApplication
 from ur_tictactoe.desktop.assets import optional_asset
 from ur_tictactoe.desktop import theme
-from ur_tictactoe.game import DRAW, HARD, HUMAN, HUMAN_WINS, INTERMEDIATE, ROBOT_WINS
+from ur_tictactoe.game import (
+    DRAW,
+    HARD,
+    HUMAN,
+    HUMAN_WINS,
+    INTERMEDIATE,
+    PICARO,
+    ROBOT_WINS,
+)
 from ur_tictactoe.runtime import RuntimeState
 
 STATE_LABELS = {
@@ -36,6 +44,7 @@ class DesktopWindow:
         self.container.grid(row=0, column=0, sticky="nsew", padx=34, pady=24)
         self._logo_image: tk.PhotoImage | None = None
         self.cell_buttons: list[ctk.CTkButton] = []
+        self._picaro_selecting = False
         self._show_home()
         self.root.after(self.application.config.update_interval_ms, self._tick)
 
@@ -59,7 +68,7 @@ class DesktopWindow:
         logo = optional_asset("assets/javeriana_logo.png")
         if logo:
             image = tk.PhotoImage(file=str(logo))
-            self._logo_image = image.subsample(max(1, (image.height() + 51) // 52))
+            self._logo_image = image.subsample(max(1, (image.width() + 129) // 130))
             ctk.CTkLabel(header, text="", image=self._logo_image).grid(
                 row=0, column=0, rowspan=2, padx=(0, 14)
             )
@@ -91,10 +100,19 @@ class DesktopWindow:
         self._field(config, "Modo de juego")
         self._radio(config, "Experto", self.difficulty, HARD).pack(anchor="w", pady=3)
         self._radio(config, "Intermedio", self.difficulty, INTERMEDIATE).pack(anchor="w", pady=3)
-        ctk.CTkRadioButton(
-            config, text="Pícaro (próximamente)", state="disabled",
+        self.picaro_radio = ctk.CTkRadioButton(
+            config, text="Pícaro", variable=self.difficulty, value=PICARO,
+            state="normal" if self.application.simulation else "disabled",
             text_color_disabled=theme.DISABLED, font=ctk.CTkFont("Segoe UI", 12),
-        ).pack(anchor="w", pady=3)
+            fg_color=theme.PRIMARY, hover_color=theme.PRIMARY_HOVER,
+        )
+        self.picaro_radio.pack(anchor="w", pady=3)
+        self.picaro_note = ctk.CTkLabel(
+            config, text="", text_color=theme.WARNING,
+            font=ctk.CTkFont("Segoe UI", 10, "bold"),
+        )
+        self.picaro_note.pack(anchor="w", pady=(2, 0))
+        self.difficulty.trace_add("write", self._update_picaro_note)
         self._field(config, "Quién inicia", (18, 6))
         self._radio(config, "Robot", self.human_first, False).pack(anchor="w", pady=3)
         self._radio(config, "Humano", self.human_first, True).pack(anchor="w", pady=3)
@@ -109,7 +127,7 @@ class DesktopWindow:
         footer.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(18, 0))
         footer.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
-            footer, text="Pontificia Universidad Javeriana\nIngeniería Mecatrónica",
+            footer, text="Pontificia Universidad Javeriana",
             justify="left", text_color=theme.TEXT_SECONDARY, font=ctk.CTkFont("Segoe UI", 11),
         ).grid(row=0, column=0, sticky="w")
         ctk.CTkButton(
@@ -146,13 +164,18 @@ class DesktopWindow:
         board.grid_rowconfigure((0, 1, 2), weight=1, uniform="board")
         board.grid_columnconfigure((0, 1, 2), weight=1, uniform="board")
         for index in range(9):
+            cell = ctk.CTkFrame(board, width=110, height=110, fg_color="transparent")
+            cell.grid(row=index // 3, column=index % 3, sticky="nsew", padx=7, pady=7)
+            cell.grid_propagate(False)
+            cell.grid_rowconfigure(0, weight=1)
+            cell.grid_columnconfigure(0, weight=1)
             button = ctk.CTkButton(
-                board, text="", command=lambda cell=index + 1: self._play_cell(cell),
+                cell, text="", command=lambda cell=index + 1: self._play_cell(cell),
                 corner_radius=10, border_width=1, border_color=theme.BORDER,
                 fg_color=theme.BACKGROUND, hover_color="#E6EDF5",
-                font=ctk.CTkFont("Segoe UI", 48, "bold"),
+                font=ctk.CTkFont("Segoe UI", 48, "bold"), width=110, height=110,
             )
-            button.grid(row=index // 3, column=index % 3, sticky="nsew", padx=7, pady=7)
+            button.grid(row=0, column=0, sticky="nsew")
             self.cell_buttons.append(button)
 
         info = ctk.CTkFrame(
@@ -169,6 +192,23 @@ class DesktopWindow:
             text_color=theme.TEXT_PRIMARY,
         )
         self.info.pack(fill="x", padx=24)
+        self.symbol_legend = ctk.CTkLabel(
+            info, text="", justify="left", anchor="w",
+            font=ctk.CTkFont("Segoe UI", 11, "bold"), text_color=theme.TEXT_SECONDARY,
+        )
+        self.symbol_legend.pack(fill="x", padx=24, pady=(12, 0))
+        self.picaro_status = ctk.CTkLabel(
+            info, text="", justify="left", anchor="w",
+            font=ctk.CTkFont("Segoe UI", 11), text_color=theme.TEXT_PRIMARY,
+        )
+        self.picaro_status.pack(fill="x", padx=24, pady=(12, 0))
+        self.picaro_button = ctk.CTkButton(
+            info, text="USAR PÍCARO", command=self._toggle_human_picaro,
+            width=150, height=34, corner_radius=7, fg_color=theme.PRIMARY,
+            hover_color=theme.PRIMARY_HOVER,
+            font=ctk.CTkFont("Segoe UI", 10, "bold"),
+        )
+        self.picaro_button.pack(anchor="w", padx=24, pady=(8, 0))
         status = ctk.CTkFrame(info, fg_color="transparent")
         status.pack(fill="x", padx=24, pady=(18, 8))
         self.status_labels = {name: self._status_row(status, name, "") for name in ("Cámara", "Robot", "Tablero")}
@@ -226,8 +266,20 @@ class DesktopWindow:
         self.application.new_game(self.difficulty.get(), self.human_first.get())
         self.root.after(50, self._show_game)
 
+    def _update_picaro_note(self, *_args: object) -> None:
+        selected = self.difficulty.get() == PICARO and self.application.simulation
+        self.picaro_note.configure(text="PÍCARO · SOLO SIMULACIÓN" if selected else "")
+
     def _play_cell(self, cell: int) -> None:
-        self.application.play_human_cell(cell)
+        if self._picaro_selecting:
+            if self.application.play_human_picaro(cell):
+                self._picaro_selecting = False
+        else:
+            self.application.play_human_cell(cell)
+        self._render()
+
+    def _toggle_human_picaro(self) -> None:
+        self._picaro_selecting = not self._picaro_selecting
         self._render()
 
     def _tick(self) -> None:
@@ -239,16 +291,52 @@ class DesktopWindow:
     def _render(self) -> None:
         snapshot = self.application.snapshot()
         turn = "HUMANO" if snapshot.turn == HUMAN else "ROBOT" if snapshot.turn else "—"
-        difficulty = "EXPERTO" if snapshot.difficulty == HARD else "INTERMEDIO"
+        difficulty = (
+            "EXPERTO"
+            if snapshot.difficulty == HARD
+            else "PÍCARO"
+            if snapshot.difficulty == PICARO
+            else "INTERMEDIO"
+        )
         state = STATE_LABELS.get(snapshot.runtime_state, "Sin partida")
         self.info.configure(text=f"Turno\n{turn}\n\nModo\n{difficulty}\n\nEstado\n{state}")
+        self.symbol_legend.configure(
+            text=(
+                f"{snapshot.robot_symbol} · Robot\n"
+                f"{snapshot.human_symbol} · Humano"
+            )
+        )
         clickable = snapshot.simulation and snapshot.runtime_state == RuntimeState.WAITING_HUMAN
+        picaro_game = snapshot.difficulty == PICARO
+        picaro_ready = clickable and snapshot.human_picaro_available
+        if not picaro_ready:
+            self._picaro_selecting = False
+        if picaro_game:
+            robot_resource = "Disponible" if snapshot.robot_picaro_available else "Usado"
+            human_resource = "Disponible" if snapshot.human_picaro_available else "Usado"
+            instruction = "\nSelecciona una ficha del robot" if self._picaro_selecting else ""
+            action = f"\n{snapshot.action_status}" if snapshot.action_status else ""
+            self.picaro_status.configure(
+                text=f"Pícaro:\nRobot  {robot_resource}\nHumano {human_resource}{instruction}{action}"
+            )
+            self.picaro_button.configure(
+                text="CANCELAR" if self._picaro_selecting else "USAR PÍCARO",
+                state="normal" if picaro_ready else "disabled",
+            )
+            self.picaro_status.pack(fill="x", padx=24, pady=(12, 0))
+            self.picaro_button.pack(anchor="w", padx=24, pady=(8, 0))
+        else:
+            self.picaro_status.pack_forget()
+            self.picaro_button.pack_forget()
         for index, button in enumerate(self.cell_buttons):
             value = snapshot.board[index] or ""
             color = theme.X_COLOR if value == "X" else theme.O_COLOR if value == "O" else theme.BACKGROUND
             text_color = "#FFFFFF" if value == "X" else theme.TEXT_PRIMARY
             button.configure(
-                text=value, state="normal" if clickable and not value else "disabled",
+                text=value,
+                state="normal" if (
+                    self._picaro_selecting and clickable and value == snapshot.robot_symbol
+                ) or (not self._picaro_selecting and clickable and not value) else "disabled",
                 fg_color=color, text_color=text_color, text_color_disabled=text_color,
             )
         for name, value in {"Cámara": snapshot.camera_status, "Robot": snapshot.robot_status, "Tablero": snapshot.board_status}.items():

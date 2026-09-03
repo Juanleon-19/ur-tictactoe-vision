@@ -27,6 +27,18 @@ entrega `READY`, `BUSY` y `DONE` en actualizaciones distintas; después genera l
 ocupación física esperada para que el runtime verifique la jugada robot. El ciclo
 usa `Tkinter.after()` y no bloquea el hilo gráfico.
 
+En simulación están disponibles:
+
+- **Experto:** Minimax completo, sin errores estratégicos deliberados.
+- **Intermedio:** victoria y bloqueo inmediatos; después usa búsqueda de un
+  nivel, heurística posicional y variación reproducible entre alternativas
+  próximas.
+- **Pícaro:** humano y robot disponen de una sustitución por partida. El humano
+  activa `USAR PÍCARO` y selecciona una ficha robot; el robot solo gasta su uso
+  cuando su mejor reemplazo mejora estrictamente su mejor jugada normal.
+
+Al seleccionar Pícaro se muestra `PÍCARO · SOLO SIMULACIÓN`.
+
 ## Modo real
 
 ```powershell
@@ -41,6 +53,10 @@ integración posterior inyectará estas dos fronteras sin cambiar la GUI:
 Camera -> ArucoDetector -> BoardObserver -> PhysicalGameRuntime
 ModbusClient -> UR
 ```
+
+En modo real Pícaro permanece deshabilitado. Una sustitución no cambia el estado
+`FREE/OCCUPIED`, por lo que hará falta identificar el propietario físico mediante
+X verde y O amarilla, e integrar posteriormente HSV y las acciones UR.
 
 Los valores iniciales de conexión están en `AppConfig` y se documentan en
 `config/app.example.yaml`; no se guardan secretos ni parámetros físicos.

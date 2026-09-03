@@ -35,6 +35,15 @@ La aplicación futura mantendrá la cámara abierta por encima del runtime y le
 entregará observaciones estables. La GUI será otra capa superior que consultará
 `RuntimeSnapshot`; no existe callback ni bus de eventos.
 
+## Límite de Pícaro
+
+El flujo físico normal no cambia. `confirm_simulated_robot_replacement()` y
+`confirm_simulated_human_replacement()` existen solo para que la simulación
+confirme una decisión `picaro` mediante estado lógico.
+No debe utilizarse con hardware: sustituir una ficha conserva la casilla ocupada
+y el observador V1 no distingue propietario. Pícaro real queda bloqueado hasta
+disponer de clasificación verde/amarillo y validación física.
+
 ## Comprobación Modbus
 
 `python main.py modbus-check --host 192.168.1.10` conecta, lee una vez `STATUS` y

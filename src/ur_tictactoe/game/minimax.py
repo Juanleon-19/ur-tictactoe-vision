@@ -3,14 +3,26 @@
 from __future__ import annotations
 
 import random
+from dataclasses import dataclass
 from functools import lru_cache
+from typing import Literal
 
 from ur_tictactoe.game.engine import Board, O, PLAYERS, WINNING_LINES, X
 
 CORNERS = (1, 3, 7, 9)
 HARD = "hard"
 INTERMEDIATE = "intermediate"
-INTERMEDIATE_DEPTH = 2
+PICARO = "picaro"
+INTERMEDIATE_DEPTH = 1
+INTERMEDIATE_SCORE_MARGIN = 1
+NORMAL_ACTION = "normal"
+PICARO_ACTION = "picaro"
+
+
+@dataclass(frozen=True)
+class RobotDecision:
+    action: Literal["normal", "picaro"]
+    cell: int
 
 
 def _other_player(player: str) -> str:
@@ -170,7 +182,7 @@ def intermediate_move(
     human: str | None = None,
     seed: int | None = None,
 ) -> int | None:
-    """Choose a reasonable move with a two-ply, depth-limited search."""
+    """Choose a competent but beatable move with a shallow heuristic."""
     if robot not in PLAYERS:
         raise ValueError("Robot must be X or O")
     human = _other_player(robot) if human is None else human
@@ -198,7 +210,11 @@ def intermediate_move(
             candidate, human, robot, human, 1, INTERMEDIATE_DEPTH
         )
         scores.append((move, score))
-    return max(scores, key=lambda item: (item[1], -item[0]))[0]
+    best_score = max(score for _, score in scores)
+    plausible = [
+        move for move, score in scores if score >= best_score - INTERMEDIATE_SCORE_MARGIN
+    ]
+    return random.Random(seed).choice(plausible)
 
 
 def choose_move(
@@ -214,3 +230,40 @@ def choose_move(
     if difficulty == INTERMEDIATE:
         return intermediate_move(board, robot, human, seed)
     raise ValueError(f"Unknown difficulty: {difficulty}")
+
+
+def choose_robot_decision(
+    board: Board,
+    robot: str,
+    human: str | None = None,
+    difficulty: str = HARD,
+    seed: int | None = None,
+    picaro_available: bool = True,
+) -> RobotDecision | None:
+    """Return a normal move or a strategically better Pícaro replacement."""
+    human = _other_player(robot) if human is None else human
+    if difficulty != PICARO:
+        move = choose_move(board, robot, human, difficulty, seed)
+        return None if move is None else RobotDecision(NORMAL_ACTION, move)
+
+    normal_move = best_move(board, robot, human, seed)
+    if normal_move is None:
+        return None
+    normal_score = _move_score(board, normal_move, robot, human)
+    if not picaro_available:
+        return RobotDecision(NORMAL_ACTION, normal_move)
+
+    replacements: list[tuple[int, int]] = []
+    for cell in range(1, 10):
+        if board.cell(cell) != human:
+            continue
+        cells = list(board.cells)
+        cells[cell - 1] = robot
+        candidate = Board(cells)
+        replacements.append((cell, _score(candidate, human, robot, human, 1)))
+    if not replacements:
+        return RobotDecision(NORMAL_ACTION, normal_move)
+    cell, replacement_score = max(replacements, key=lambda item: (item[1], -item[0]))
+    if replacement_score <= normal_score:
+        return RobotDecision(NORMAL_ACTION, normal_move)
+    return RobotDecision(PICARO_ACTION, cell)
