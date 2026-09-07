@@ -43,13 +43,13 @@ escribe `STATUS=2` y el PC lee `2`.
 ## C. Feature Plane / cuadrícula
 
 Prueba posterior y física. Crear en PolyScope el Feature Plane `TABLERO` con tres
-puntos enseñados. El usuario proporcionará la distancia entre centros de
-columnas, la distancia entre centros de filas y la posición relativa del
-centro/origen. El software/URScript calculará las nueve celdas relativas al
-Feature.
+puntos enseñados. El pitch ya medido es 0.0655 m en ambos ejes: hueco de
+60 mm y separación de 5,5 mm. El origen es el centro de celda 1, +X hacia celda 3
+y +Y hacia celda 7. URScript calcula las nueve celdas relativas al Feature;
+Python no calcula ni transmite sus coordenadas.
 
-La primera prueba no baja a la superficie: calcular cada `CELL_N_SAFE` a una
-altura segura, mover lentamente `1 -> 2 -> ... -> 9` y verificar visualmente que
+La primera prueba no baja a la superficie: validar CELL5_SAFE y después cada
+`CELL_N_SAFE` a una altura enseñada. Probar una celda por comando y verificar que
 el TCP queda sobre el centro correcto sin riesgo de choque. Solo después se
 define `CELL_N_PLACE` a la altura real. Si se mueve el tablero se reenseña el
 Feature Plane, no las nueve celdas.
@@ -57,3 +57,6 @@ Feature Plane, no las nueve celdas.
 ## D. Movimiento + Modbus
 
 Solo después de B y C. Probar primero `CELL 5` y después las nueve celdas.
+
+Seguir los doce pasos de [Calibración física](calibracion-fisica.md), incluyendo
+Robotiq, HOME/PICK y Z_PLACE antes de Mode 2. Todos esos ensayos siguen pendientes.

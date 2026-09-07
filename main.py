@@ -101,6 +101,8 @@ def build_parser() -> argparse.ArgumentParser:
     modbus_parser.add_argument("--host", required=True, help="Robot or URSim host")
     modbus_parser.add_argument("--port", type=int, default=502)
     modbus_parser.add_argument("--command", type=int, choices=range(1, 10))
+    modbus_parser.add_argument("--timeout", type=positive_seconds, default=3.0,
+                               help="Maximum seconds per handshake status wait")
     modbus_parser.add_argument(
         "--handshake",
         type=int,
@@ -112,11 +114,40 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Explicitly allow writing COMMAND_REGISTER",
     )
+    robot_parser = subparsers.add_parser(
+        "robot-test", help="Test one cell using the existing Modbus handshake"
+    )
+    robot_parser.add_argument("--host", required=True)
+    robot_parser.add_argument("--port", type=int, default=502)
+    robot_parser.add_argument("--cell", type=int, choices=range(1, 10), required=True)
+    robot_parser.add_argument("--allow-motion", action="store_true",
+                              help="Explicitly authorize a cell command; mode is selected on UR")
+    robot_parser.add_argument("--timeout", type=positive_seconds, default=30.0,
+                              help="Maximum seconds per status wait; timeout does not stop the robot")
     app_parser = subparsers.add_parser("app", help="Open the Windows desktop application")
     app_parser.add_argument(
         "--simulate", action="store_true", help="Run without camera, robot, or sockets"
     )
     return parser
+
+
+def positive_seconds(value: str) -> float:
+    import math
+
+    seconds = float(value)
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise argparse.ArgumentTypeError("timeout must be finite and positive")
+    return seconds
+
+
+def run_robot_test(args: argparse.Namespace) -> int:
+    if not args.allow_motion:
+        print("ERROR: robot-test requires --allow-motion; no command was sent.", file=sys.stderr)
+        return 2
+    return run_modbus_check(argparse.Namespace(
+        host=args.host, port=args.port, command=None, handshake=args.cell,
+        allow_write=True, timeout=args.timeout,
+    ))
 
 
 STATUS_NAMES = {
@@ -149,9 +180,9 @@ def run_modbus_check(args: argparse.Namespace, client_factory=None) -> int:
             print(f"WRITING COMMAND_REGISTER={COMMAND_REGISTER}: {command}")
             client.write_command(command)
             try:
-                if not _wait_for_status(client, STATUS_BUSY):
+                if not _wait_for_status(client, STATUS_BUSY, args.timeout):
                     return 1
-                if not _wait_for_status(client, STATUS_DONE):
+                if not _wait_for_status(client, STATUS_DONE, args.timeout):
                     return 1
                 time.sleep(0.1)
                 held = client.read_status()
@@ -161,7 +192,7 @@ def run_modbus_check(args: argparse.Namespace, client_factory=None) -> int:
             finally:
                 print(f"CLEARING COMMAND_REGISTER={COMMAND_REGISTER}: 0")
                 client.clear_command()
-            return 0 if _wait_for_status(client, STATUS_READY) else 1
+            return 0 if _wait_for_status(client, STATUS_READY, args.timeout) else 1
         if args.command is not None:
             print(f"WRITING COMMAND_REGISTER={COMMAND_REGISTER}: {args.command}")
             client.write_command(args.command)
@@ -170,8 +201,8 @@ def run_modbus_check(args: argparse.Namespace, client_factory=None) -> int:
         client.close()
 
 
-def _wait_for_status(client: ModbusClient, expected: int) -> bool:
-    deadline = time.monotonic() + 3.0
+def _wait_for_status(client: ModbusClient, expected: int, timeout: float = 3.0) -> bool:
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         status = client.read_status()
         print(f"STATUS = {STATUS_NAMES[status]}")
@@ -275,6 +306,9 @@ def main() -> int:
 
     if args.subcommand == "modbus-check":
         return run_modbus_check(args)
+
+    if args.subcommand == "robot-test":
+        return run_robot_test(args)
 
     if args.subcommand == "app":
         return run_desktop_app(args.simulate)

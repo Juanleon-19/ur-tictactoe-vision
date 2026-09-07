@@ -116,6 +116,12 @@ Esta fase se desarrolla anticipadamente porque no depende de cámara ni robot.
 **Estado:** controlador URScript paramétrico preparado; validación de movimiento
 físico pendiente.
 
+Pitch medido de 0.0655 m en ambos ejes, con Plane TABLERO en celda 1.
+Secuencia HOME/PICK/PLACE preparada con bloqueos de enseñanza. Robotiq identificado
+como fabricante; modelo y versión URCap pendientes, adaptador todavía bloqueado.
+El CLI `robot-test` reutiliza el handshake y exige `--allow-motion`. Ningún ensayo
+físico de esta preparación se da por aprobado; ver `docs/calibracion-fisica.md`.
+
 ### Objetivo
 
 Enseñar y validar manualmente las trayectorias físicas, en paralelo al software.

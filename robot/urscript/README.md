@@ -14,15 +14,27 @@ No cambiar `MOTION_MODE` hasta verificar en el robot:
 - TCP, payload y herramienta;
 - Feature Plane `TABLERO` enseñado físicamente;
 - disponibilidad del símbolo URScript `TABLERO` dentro del Script node;
-- `GRID_DX`, `GRID_DY`, `CELL1_X`, `CELL1_Y`, `Z_SAFE` y `Z_PLACE`, en metros;
+- pitch medido `GRID_DX=GRID_DY=0.0655` m y origen en celda 1;
+- `Z_SAFE` y `Z_PLACE`, pendientes de medición relativa al Plane;
 - `CELL_RX`, `CELL_RY`, `CELL_RZ`, como vector de rotación relativo al Feature;
 - HOME o posición inicial segura y recorrido libre hasta cada `CELL_N_SAFE`;
 - solución de cinemática inversa y configuración articular para las nueve celdas;
 - aceleración y velocidad iniciales bajo evaluación de riesgos.
 
-Los valores geométricos `0.0` no representan posiciones reales. Los flags
-`GEOMETRY_CONFIGURED` y `ORIENTATION_CONFIGURED` mantienen bloqueado el modo 1
-hasta que una persona los complete conscientemente.
+`CELL1_X=CELL1_Y=0.0` sí representa el origen acordado en celda 1. Las alturas,
+orientación, HOME/PICK y velocidades desconocidas se expresan mediante listas
+vacías `[]`, nunca poses ficticias. Consultar la representación exacta y los
+12 pasos en [Calibración física](../../docs/calibracion-fisica.md).
+
+Mode 1 exige geometría, orientación y movimiento configurados; no usa gripper ni
+PICK. Mode 2 exige además PICK/HOME/Z_PLACE y Robotiq configurados. El adaptador
+Robotiq permanece sin activar hasta identificar modelo y versión URCap, verificar
+sus funciones y probar agarre/liberación. Cambiar un flag no implementa el adaptador.
+
+El CLI de ensayo es `python main.py robot-test --host HOST --cell 5 --allow-motion`.
+Sin `--allow-motion` no conecta ni escribe. No envía poses y no cambia MOTION_MODE.
+No ejecutar junto con otro cliente Modbus. Timeout/reset de COMMAND no detienen
+un movimiento ya iniciado; parar e inspeccionar desde el teach pendant.
 
 ## Inclusión en PolyScope
 

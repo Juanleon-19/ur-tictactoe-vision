@@ -121,6 +121,12 @@ demuestran que la identificación directa por IDs no es suficiente.
 
 ## Comunicación con el UR
 
+Para preparar las pruebas de movimiento, consultar la
+[guía de calibración física](docs/calibracion-fisica.md). El comando
+`python main.py robot-test --host HOST --cell 5` rechaza la operación sin
+`--allow-motion`. Solo envía la celda por Modbus; el modo y los parámetros físicos
+se configuran en el UR. Ninguna prueba física se da por aprobada.
+
 La interfaz V1 prevista es un comando Modbus mínimo:
 
 Ejemplo conceptual:
