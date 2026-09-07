@@ -8,6 +8,7 @@ from pathlib import Path
 from ur_tictactoe.communication import STATUS_BUSY, STATUS_DONE, STATUS_READY
 from ur_tictactoe.config import load_vision_config
 from ur_tictactoe.desktop.real_backend import RealGameBackend
+from ur_tictactoe.desktop.diagnostics import DiagnosticSnapshot
 from ur_tictactoe.game import (
     ACTIVE,
     HARD,
@@ -116,7 +117,7 @@ class GameApplication:
         if self.real_backend is not None:
             self.real_backend.close()
 
-    def new_game(self, difficulty: str, human_first: bool) -> bool:
+    def new_game(self, difficulty: str, human_first: bool, *, seed: int | None = None) -> bool:
         if difficulty not in (HARD, INTERMEDIATE, PICARO):
             raise ValueError(f"Unknown difficulty: {difficulty}")
 
@@ -126,7 +127,7 @@ class GameApplication:
             self._last_error = "PICARO_SIMULATION_ONLY"
             return False
 
-        self.session = GameSession(difficulty, human_first, seed=None)
+        self.session = GameSession(difficulty, human_first, seed=seed)
         self._physical_occupied = set()
         self._last_error = None
         self._action_status = None
@@ -233,6 +234,11 @@ class GameApplication:
             RuntimeState.VERIFYING_ROBOT,
         ):
             self.runtime.update_board(observation)
+
+    def diagnostic_snapshot(self) -> DiagnosticSnapshot:
+        if self.simulation or self.real_backend is None:
+            return DiagnosticSnapshot()
+        return self.real_backend.diagnostic_snapshot()
 
     def snapshot(self) -> ApplicationSnapshot:
         if self.session is None:

@@ -88,6 +88,32 @@ def test_complete_simulation_reaches_game_over() -> None:
     assert app.snapshot().result != "active"
 
 
+@pytest.mark.parametrize("human_first", [False, True])
+@pytest.mark.parametrize("seed", [0, 7, 42])
+def test_expert_desktop_acceptance_is_legal_and_never_loses(human_first, seed) -> None:
+    import random
+
+    app = GameApplication(simulation=True)
+    app.new_game(HARD, human_first, seed=seed)
+    rng = random.Random(seed)
+    previous = app.snapshot().board
+    for _ in range(60):
+        snapshot = app.snapshot()
+        if snapshot.runtime_state == RuntimeState.GAME_OVER:
+            break
+        if snapshot.runtime_state == RuntimeState.WAITING_HUMAN:
+            legal = [i + 1 for i, value in enumerate(snapshot.board) if value is None]
+            assert app.play_human_cell(rng.choice(legal))
+        else:
+            app.update()
+        current = app.snapshot().board
+        assert all(old is None or old == new for old, new in zip(previous, current))
+        assert sum(old != new for old, new in zip(previous, current)) <= 1
+        previous = current
+    assert app.snapshot().runtime_state == RuntimeState.GAME_OVER
+    assert app.snapshot().result in ("robot_wins", "draw")
+
+
 def test_new_game_uses_a_clean_board() -> None:
     app = GameApplication(simulation=True)
     app.new_game(HARD, True)

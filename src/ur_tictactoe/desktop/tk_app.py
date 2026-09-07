@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tkinter as tk
 import customtkinter as ctk
+from PIL import Image
 
 from ur_tictactoe.desktop.application import GameApplication
 from ur_tictactoe.desktop.assets import optional_asset
@@ -30,6 +31,13 @@ STATE_LABELS = {
 RESULT_LABELS = {ROBOT_WINS: "GANÓ EL ROBOT", HUMAN_WINS: "GANÓ EL HUMANO", DRAW: "EMPATE"}
 
 
+class CellButton(ctk.CTkButton):
+    """An empty cell has no text label; focus the widget itself."""
+
+    def focus_set(self) -> None:
+        tk.Misc.focus_set(self)
+
+
 class DesktopWindow:
     def __init__(self, application: GameApplication) -> None:
         ctk.set_appearance_mode("light")
@@ -40,9 +48,21 @@ class DesktopWindow:
         self.root.minsize(800, 550)
         self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
-        self.container = ctk.CTkFrame(self.root, fg_color="transparent")
+        self.tabs = ctk.CTkTabview(self.root)
+        self.tabs.grid(row=0, column=0, sticky="nsew")
+        game_tab = self.tabs.add("JUEGO")
+        game_tab.grid_rowconfigure(0, weight=1)
+        game_tab.grid_columnconfigure(0, weight=1)
+        diagnostic_tab = self.tabs.add("CÁMARA / DIAGNÓSTICO")
+        self.camera_preview = ctk.CTkLabel(diagnostic_tab, text="CÁMARA NO DISPONIBLE")
+        self.camera_preview.pack(fill="both", expand=True, padx=12, pady=12)
+        self.camera_details = ctk.CTkLabel(diagnostic_tab, text="", justify="left")
+        self.camera_details.pack(fill="x", padx=12, pady=12)
+        self._preview_source = None
+        self._preview_image = None
+        self.container = ctk.CTkFrame(game_tab, fg_color="transparent")
         self.container.grid(row=0, column=0, sticky="nsew", padx=34, pady=24)
-        self._logo_image: tk.PhotoImage | None = None
+        self._logo_image: ctk.CTkImage | None = None
         self.cell_buttons: list[ctk.CTkButton] = []
         self._picaro_selecting = False
         self._show_home()
@@ -67,8 +87,10 @@ class DesktopWindow:
         header.grid_columnconfigure(1, weight=1)
         logo = optional_asset("assets/javeriana_logo.png")
         if logo:
-            image = tk.PhotoImage(file=str(logo))
-            self._logo_image = image.subsample(max(1, (image.width() + 129) // 130))
+            with Image.open(logo) as source:
+                image = source.copy()
+            image.thumbnail((130, 130))
+            self._logo_image = ctk.CTkImage(image, size=image.size)
             ctk.CTkLabel(header, text="", image=self._logo_image).grid(
                 row=0, column=0, rowspan=2, padx=(0, 14)
             )
@@ -169,7 +191,7 @@ class DesktopWindow:
             cell.grid_propagate(False)
             cell.grid_rowconfigure(0, weight=1)
             cell.grid_columnconfigure(0, weight=1)
-            button = ctk.CTkButton(
+            button = CellButton(
                 cell, text="", command=lambda cell=index + 1: self._play_cell(cell),
                 corner_radius=10, border_width=1, border_color=theme.BORDER,
                 fg_color=theme.BACKGROUND, hover_color="#E6EDF5",
@@ -284,9 +306,31 @@ class DesktopWindow:
 
     def _tick(self) -> None:
         self.application.update()
+        if self.tabs.get() == "CÁMARA / DIAGNÓSTICO":
+            self._render_diagnostics()
         if self.cell_buttons and self.cell_buttons[0].winfo_exists():
             self._render()
         self.root.after(self.application.config.update_interval_ms, self._tick)
+
+    def _render_diagnostics(self) -> None:
+        snapshot = self.application.diagnostic_snapshot()
+        if snapshot.frame is None:
+            self.camera_preview.configure(image=None, text="CÁMARA NO DISPONIBLE")
+            self._preview_source = None
+            self._preview_image = None
+        elif snapshot.frame is not self._preview_source:
+            preview = Image.fromarray(snapshot.frame)
+            preview.thumbnail((640, 360))
+            self._preview_image = ctk.CTkImage(preview, size=preview.size)
+            self._preview_source = snapshot.frame
+            self.camera_preview.configure(image=self._preview_image, text="")
+        resolution = " × ".join(map(str, snapshot.resolution)) if snapshot.resolution else "—"
+        cells = "   ".join(f"{cell}: {state.value}" for cell, state in enumerate(snapshot.cells, 1))
+        self.camera_details.configure(
+            text=f"Perfil: {snapshot.profile.upper()} | Cámara: {snapshot.camera_status} | {resolution}\n"
+                 f"IDs visibles: {', '.join(map(str, snapshot.visible_ids)) or '—'}\n{cells}",
+            wraplength=760,
+        )
 
     def _render(self) -> None:
         snapshot = self.application.snapshot()

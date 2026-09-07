@@ -4,3 +4,4 @@ PyYAML>=6.0
 pytest>=8.0
 pymodbus>=3.14,<3.15
 customtkinter>=6.0,<7
+Pillow>=10,<13

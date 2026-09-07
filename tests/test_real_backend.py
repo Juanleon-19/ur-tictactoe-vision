@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
+import numpy as np
 
 from ur_tictactoe.communication import (
     STATUS_BUSY,
@@ -139,6 +140,46 @@ def test_constructing_backend_does_not_open_devices() -> None:
     make_backend(camera=camera, modbus=modbus)
     assert camera.open_calls == 0
     assert modbus.connect_calls == 0
+
+
+def test_diagnostic_snapshot_reuses_single_capture_and_detection() -> None:
+    camera = FakeCamera(None)
+    camera.frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    detector = FakeDetector(tuple(range(10, 19)))
+    observer = RecordingObserver(physical(2, uncertain=(9,)))
+    backend = make_backend(camera=camera, detector=detector, observer=observer)
+    backend.open()
+    backend.tick()
+    for _ in range(3):
+        snapshot = backend.diagnostic_snapshot()
+        assert snapshot.profile == "robust"
+        assert snapshot.visible_ids == tuple(range(10, 19))
+        assert snapshot.resolution == (1280, 720)
+        assert snapshot.cells[0] == CellState.FREE
+        assert snapshot.cells[1] == CellState.OCCUPIED
+        assert snapshot.cells[8] == CellState.UNCERTAIN
+        assert snapshot.frame is not None
+    assert camera.open_calls == camera.read_calls == len(detector.frames) == 1
+
+
+def test_diagnostic_snapshot_without_camera_or_frame() -> None:
+    camera = FakeCamera(None, RuntimeError("absent"))
+    backend = make_backend(camera=camera)
+    assert backend.diagnostic_snapshot().frame is None
+    backend.open()
+    backend.tick()
+    snapshot = backend.diagnostic_snapshot()
+    assert snapshot.camera_status == "ERROR"
+    assert snapshot.frame is None
+    assert snapshot.visible_ids == ()
+    assert snapshot.cells == (CellState.UNCERTAIN,) * 9
+    assert camera.read_calls == 0
+
+
+def test_simulated_diagnostics_never_open_hardware() -> None:
+    app = GameApplication(simulation=True)
+    assert app.diagnostic_snapshot().frame is None
+    assert app.real_backend is None
 
 
 def test_open_opens_camera_and_modbus() -> None:

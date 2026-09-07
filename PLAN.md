@@ -1,5 +1,16 @@
 # Plan de desarrollo
 
+## Cierre de software desktop
+
+- Diagnóstico integrado en una segunda pestaña, con una única captura/detección
+  por tick y presentación de IDs 10..18 y estados temporales.
+- Acceptance de widgets reales en procesos separados, sin hardware: navegación,
+  logo, casillas vacías, cancelación Pícaro y errores de cámara/robot.
+- Tcl/Tk funciona desde el intérprete del proyecto fuera del aislamiento;
+  no se alteraron variables globales ni se ocultaron errores del intérprete.
+- Packaging Windows reproducible y smoke del ejecutable: siguiente bloque.
+- La validación física de UR, Robotiq y calibración sigue pendiente.
+
 Este documento define el orden de implementación del proyecto. Cada fase debe cerrar con un resultado verificable antes de iniciar la siguiente.
 
 ## Fase 1 — Vision & ArUco

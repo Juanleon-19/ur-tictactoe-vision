@@ -99,6 +99,24 @@ universidad en el pie. `desktop/assets.py` resuelve esta ruta tanto desde el ár
 de desarrollo como desde el directorio temporal `_MEIPASS` de una futura
 aplicación PyInstaller. No se incluye ni se genera una imitación del escudo.
 
+## Cámara / Diagnóstico
+
+La pestaña comparte la única cámara y detección del `RealGameBackend`. Cada tick
+captura como máximo un frame; consultar el snapshot o cambiar de pestaña no
+captura ni decide jugadas. Presenta video RGB anotado con IDs 10..18, perfil,
+resolución efectiva y estados FREE/OCCUPIED/UNCERTAIN. Sin cámara permanece
+disponible y muestra CÁMARA NO DISPONIBLE. En simulación no abre dispositivos.
+
+## Validación de Tcl/Tk
+
+En esta sesión Python 3.12.10 y Tcl/Tk 8.6.15 funcionan fuera del contexto
+aislado del asistente. Dentro de ese contexto Tk falla al localizar init.tcl,
+aunque los archivos se pueden leer. No se modificó el intérprete ni se guardaron
+variables TCL_LIBRARY/TK_LIBRARY globales. Ejecutar `python -m tkinter` y
+`python -m pytest -q` desde una terminal normal del proyecto. La suite incluye
+widgets Tk reales y necesita una sesión gráfica; no requiere cámara ni robot.
+Los temporales locales `.gui-test-temp/` y `.gui-test-cache/` están ignorados.
+
 ## Distribución futura
 
 Después de validar el modo real, PyInstaller podrá producir el ejecutable Windows

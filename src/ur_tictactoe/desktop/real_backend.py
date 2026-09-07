@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import numpy as np
+
 from ur_tictactoe.communication import ModbusClient
-from ur_tictactoe.config import VisionConfig
+from ur_tictactoe.config import CELL_IDS, VisionConfig
+from ur_tictactoe.desktop.diagnostics import DiagnosticSnapshot, diagnostic_frame
 from ur_tictactoe.vision.aruco import ArucoDetector
 from ur_tictactoe.vision.board_observer import BoardObserver, PhysicalBoardState
 from ur_tictactoe.vision.camera import Camera
@@ -40,6 +43,22 @@ class RealGameBackend:
         self._camera_open = False
         self._robot_open = False
         self._closed = False
+        self.aruco_profile = aruco_profile
+        self._preview = None
+        self._visible_ids: tuple[int, ...] = ()
+
+    def diagnostic_snapshot(self) -> DiagnosticSnapshot:
+        state = self.last_observation
+        return DiagnosticSnapshot(
+            camera_status=self.camera_status,
+            profile=self.aruco_profile,
+            visible_ids=self._visible_ids,
+            resolution=(self._preview.shape[1], self._preview.shape[0])
+            if self._preview is not None else None,
+            cells=tuple(state.cells[cell] for cell in range(1, 10))
+            if state is not None else DiagnosticSnapshot().cells,
+            frame=self._preview,
+        )
 
     @property
     def is_open(self) -> bool:
@@ -80,7 +99,12 @@ class RealGameBackend:
             detection = self.detector.detect(frame)
             self.observer.update(detection.id_set)
             self.last_observation = self.observer.state
+            self._visible_ids = tuple(sorted(detection.id_set.intersection(CELL_IDS)))
+            self._preview = diagnostic_frame(frame, detection) if isinstance(frame, np.ndarray) else None
+            self.camera_status = "CONECTADA"
         except Exception as exc:
+            self._preview = None
+            self._visible_ids = ()
             self.camera_status = "ERROR"
             self.last_error = f"CAMERA_CAPTURE_ERROR: {exc}"
         return self.last_observation
@@ -90,6 +114,8 @@ class RealGameBackend:
         if self._closed:
             return
         self._closed = True
+        self._preview = None
+        self._visible_ids = ()
         errors: list[str] = []
         try:
             self.camera.close()
