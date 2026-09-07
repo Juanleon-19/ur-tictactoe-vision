@@ -31,38 +31,29 @@ ui:
     )
 
 
-def test_loads_frame_and_cell_marker_roles(tmp_path: Path) -> None:
+def test_loads_operational_cell_markers(tmp_path: Path) -> None:
     path = tmp_path / "vision.yaml"
     _write_config(
         path,
-        "  frame_ids: [0, 1, 2, 3]\n"
         "  cell_ids: [10, 11, 12, 13, 14, 15, 16, 17, 18]",
     )
 
     config = load_vision_config(path)
 
-    assert config.aruco.frame_ids == (0, 1, 2, 3)
     assert config.aruco.cell_ids == (10, 11, 12, 13, 14, 15, 16, 17, 18)
-    assert len(config.aruco.all_ids) == 13
+    assert len(config.aruco.all_ids) == 9
 
 
-def test_rejects_non_v1_frame_ids_even_with_correct_count(tmp_path: Path) -> None:
+def test_default_configuration_uses_nine_cell_ids(tmp_path: Path) -> None:
     path = tmp_path / "vision.yaml"
-    _write_config(
-        path,
-        "  frame_ids: [4, 5, 6, 7]\n"
-        "  cell_ids: [10, 11, 12, 13, 14, 15, 16, 17, 18]",
-    )
-
-    with pytest.raises(ValueError, match=r"frame_ids must be exactly \[0, 1, 2, 3\] for V1"):
-        load_vision_config(path)
+    _write_config(path, "")
+    assert load_vision_config(path).aruco.all_ids == tuple(range(10, 19))
 
 
 def test_rejects_non_v1_cell_ids_even_with_correct_count(tmp_path: Path) -> None:
     path = tmp_path / "vision.yaml"
     _write_config(
         path,
-        "  frame_ids: [0, 1, 2, 3]\n"
         "  cell_ids: [20, 21, 22, 23, 24, 25, 26, 27, 28]",
     )
 
@@ -74,11 +65,10 @@ def test_rejects_reordered_v1_ids(tmp_path: Path) -> None:
     path = tmp_path / "vision.yaml"
     _write_config(
         path,
-        "  frame_ids: [0, 1, 3, 2]\n"
-        "  cell_ids: [10, 11, 12, 13, 14, 15, 16, 17, 18]",
+        "  cell_ids: [11, 10, 12, 13, 14, 15, 16, 17, 18]",
     )
 
-    with pytest.raises(ValueError, match="frame_ids must be exactly"):
+    with pytest.raises(ValueError, match="cell_ids must be exactly"):
         load_vision_config(path)
 
 

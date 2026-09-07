@@ -7,7 +7,6 @@ from typing import Any
 import yaml
 import cv2
 
-FRAME_IDS = (0, 1, 2, 3)
 CELL_IDS = (10, 11, 12, 13, 14, 15, 16, 17, 18)
 CAMERA_BACKENDS = {
     "AUTO": cv2.CAP_ANY,
@@ -38,12 +37,11 @@ class CameraConfig:
 @dataclass(frozen=True)
 class ArucoConfig:
     dictionary: str = "DICT_5X5_50"
-    frame_ids: tuple[int, ...] = FRAME_IDS
     cell_ids: tuple[int, ...] = CELL_IDS
 
     @property
     def all_ids(self) -> tuple[int, ...]:
-        return self.frame_ids + self.cell_ids
+        return self.cell_ids
 
 
 @dataclass(frozen=True)
@@ -91,15 +89,12 @@ def load_vision_config(path: Path) -> VisionConfig:
     ui_raw = _section(raw, "ui")
     observer_raw = _section(raw, "observer")
 
-    frame_ids = _parse_ids(aruco_raw, "frame_ids", list(FRAME_IDS))
     cell_ids = _parse_ids(
         aruco_raw,
         "cell_ids",
         list(CELL_IDS),
     )
 
-    if frame_ids != FRAME_IDS:
-        raise ValueError(f"aruco.frame_ids must be exactly {list(FRAME_IDS)} for V1.")
     if cell_ids != CELL_IDS:
         raise ValueError(f"aruco.cell_ids must be exactly {list(CELL_IDS)} for V1.")
 
@@ -119,7 +114,6 @@ def load_vision_config(path: Path) -> VisionConfig:
         camera=camera,
         aruco=ArucoConfig(
             dictionary=str(aruco_raw.get("dictionary", "DICT_5X5_50")),
-            frame_ids=frame_ids,
             cell_ids=cell_ids,
         ),
         ui=UIConfig(

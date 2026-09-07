@@ -5,5 +5,6 @@ from ur_tictactoe.desktop.application import (
     ApplicationSnapshot,
     GameApplication,
 )
+from ur_tictactoe.desktop.real_backend import RealGameBackend
 
-__all__ = ["AppConfig", "ApplicationSnapshot", "GameApplication"]
+__all__ = ["AppConfig", "ApplicationSnapshot", "GameApplication", "RealGameBackend"]

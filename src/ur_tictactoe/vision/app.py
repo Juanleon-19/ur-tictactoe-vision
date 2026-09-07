@@ -69,23 +69,13 @@ def run_vision(config: VisionConfig, aruco_profile: str = "default") -> int:
 
                 visible_ids = result.id_set
                 status = calculate_marker_status(
-                    visible_ids, config.aruco.frame_ids, config.aruco.cell_ids
+                    visible_ids, config.aruco.cell_ids
                 )
 
                 _draw_status(
                     display,
-                    "FRAME READY" if status.frame_ready else "FRAME NOT READY",
-                    30,
-                )
-                _draw_status(
-                    display,
                     f"Cell markers visible: {status.cell_markers_visible}/{len(config.aruco.cell_ids)}",
                     60,
-                )
-                _draw_status(
-                    display,
-                    "EMPTY BOARD READY" if status.empty_board_ready else "EMPTY BOARD NOT READY",
-                    90,
                 )
 
                 detected_text = "Detected IDs: " + (
@@ -157,13 +147,11 @@ def run_move_detection(config: VisionConfig, stable_frames: int = 5) -> int:
 
                 status = calculate_marker_status(
                     result.id_set,
-                    config.aruco.frame_ids,
                     config.aruco.cell_ids,
                 )
                 visible_cell_ids = result.id_set & set(config.aruco.cell_ids)
                 human_move = move_detector.update(
                     visible_cell_ids,
-                    status.frame_ready,
                     occupied_cells,
                 )
                 if human_move is not None:
@@ -171,11 +159,6 @@ def run_move_detection(config: VisionConfig, stable_frames: int = 5) -> int:
                     last_human_move = human_move
                     print(f"HUMAN MOVE: CELL {human_move}")
 
-                _draw_status(
-                    display,
-                    "FRAME READY" if status.frame_ready else "FRAME NOT READY",
-                    30,
-                )
                 _draw_status(
                     display,
                     f"Cell markers visible {status.cell_markers_visible}/9",
@@ -211,8 +194,7 @@ def _print_board_state(state: PhysicalBoardState) -> None:
     readiness = "READY" if state.ready else "NOT READY"
     print(
         f"\nBOARD STATE - {readiness} "
-        f"({state.valid_samples}/{state.total_samples} valid, "
-        f"{state.frame_readiness_ratio:.0%} frame readiness)"
+        f"({state.total_samples} samples)"
     )
     for cell in range(1, 10):
         print(
@@ -224,18 +206,16 @@ def _print_board_state(state: PhysicalBoardState) -> None:
 def _print_stability(metrics: ArucoStabilityMetrics) -> None:
     print(
         "\nARUCO STABILITY "
-        f"({metrics.valid_samples}/{metrics.total_samples} valid frames, "
-        f"{metrics.frame_readiness_ratio:.1%} readiness)"
+        f"({metrics.total_samples} frames)"
     )
-    print("ID    all frames   valid frames")
+    print("ID    detection ratio")
     for marker_id in metrics.marker_ids:
         print(
-            f"ID {marker_id:2}: {metrics.all_frame_ratio(marker_id):9.1%} "
-            f"{metrics.valid_frame_ratio(marker_id):12.1%}"
+            f"ID {marker_id:2}: {metrics.detection_ratio(marker_id):9.1%}"
         )
 
 
-def run_board_observer(config: VisionConfig, aruco_profile: str = "default") -> int:
+def run_board_observer(config: VisionConfig, aruco_profile: str = "robust") -> int:
     """Continuously observe physical occupancy without changing GameSession."""
     detector = ArucoDetector(config.aruco.dictionary, aruco_profile)
     observer = BoardObserver(config.observer)
@@ -275,17 +255,11 @@ def run_board_observer(config: VisionConfig, aruco_profile: str = "default") -> 
                         _print_board_state(state)
                         previous_signature = signature
 
-                _draw_status(
-                    display,
-                    "FRAME READY" if state.ready else "FRAME NOT READY",
-                    30,
-                )
                 _draw_status(display, f"ArUco profile: {aruco_profile}", 60)
                 _draw_status(display, f"FPS: {fps:.1f}", 90)
                 _draw_status(
                     display,
-                    f"Valid samples: {state.valid_samples}/{state.total_samples} "
-                    f"({state.frame_readiness_ratio:.0%})",
+                    f"Samples: {state.total_samples} - " + ("BOARD READY" if state.ready else "COLLECTING SAMPLES"),
                     120,
                 )
                 for cell in range(1, 10):

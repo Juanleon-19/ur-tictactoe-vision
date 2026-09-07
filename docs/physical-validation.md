@@ -1,7 +1,9 @@
 # Validación física del MVP
 
-Estado: implementación software del observador temporal completa; comparación
-física entre los perfiles ArUco `default` y `robust` pendiente.
+Estado: C920 detectada a 1280×720 @ 30 FPS; `robust` mejoró claramente
+la detección frente a `default` y es el perfil operacional predeterminado.
+Se observaron IDs 10..18 en 9/9, con mayor flicker en ID18.
+La validación de ocupación y del ciclo físico completo sigue pendiente.
 
 Estas pruebas se ejecutan manualmente y en orden. Los tests automáticos nunca
 mueven el robot.
@@ -13,9 +15,9 @@ mueven el robot.
 Con el tablero vacío y la cámara en su posición definitiva:
 
 1. ejecutar 30 s con `python main.py board-observe --aruco-profile default`;
-2. cerrar con `q` o `Esc` y anotar el resumen de los 13 IDs;
+2. cerrar con `q` o `Esc` y anotar el resumen de los nueve IDs operacionales;
 3. repetir 30 s con `python main.py board-observe --aruco-profile robust`;
-4. comparar por ID el porcentaje detectado y el porcentaje de frame readiness.
+4. comparar por ID el porcentaje detectado sobre todas las muestras.
 
 PASS: no aparece ningún falso `OCCUPIED` y se elige el perfil con mayor
 estabilidad. Registrar también FPS medio, iluminación y qué IDs bajan de 95 %.

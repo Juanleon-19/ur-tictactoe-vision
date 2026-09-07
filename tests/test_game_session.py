@@ -165,7 +165,7 @@ def test_human_move_detector_connects_to_session_without_camera() -> None:
 
     human_move = None
     for _ in range(3):
-        human_move = detector.update(visible, True, set())
+        human_move = detector.update(visible, set())
 
     assert human_move == 5
     session.play_human_move(human_move)

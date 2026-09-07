@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from ur_tictactoe.communication import STATUS_BUSY, STATUS_DONE, STATUS_READY
+from ur_tictactoe.config import load_vision_config
+from ur_tictactoe.desktop.real_backend import RealGameBackend
 from ur_tictactoe.game import (
     ACTIVE,
     HARD,
@@ -23,6 +26,8 @@ class AppConfig:
     robot_host: str = "192.168.1.10"
     robot_port: int = 502
     update_interval_ms: int = 100
+    vision_config_path: Path = Path("config/vision.local.yaml")
+    aruco_profile: str = "robust"
 
 
 @dataclass(frozen=True)
@@ -69,7 +74,12 @@ class SimulatedModbusClient:
 class GameApplication:
     """Own one game and expose UI-safe commands and snapshots."""
 
-    def __init__(self, simulation: bool, config: AppConfig | None = None) -> None:
+    def __init__(
+        self,
+        simulation: bool,
+        config: AppConfig | None = None,
+        real_backend: RealGameBackend | None = None,
+    ) -> None:
         self.simulation = simulation
         self.config = config or AppConfig()
         self.session: GameSession | None = None
@@ -78,6 +88,33 @@ class GameApplication:
         self._last_error: str | None = None
         self._action_status: str | None = None
         self._action_status_ticks = 0
+        self.real_backend = real_backend
+        self._last_observation: PhysicalBoardState | None = None
+        if not simulation and real_backend is None:
+            try:
+                vision_config = load_vision_config(self.config.vision_config_path)
+                self.real_backend = RealGameBackend(
+                    vision_config,
+                    self.config.robot_host,
+                    self.config.robot_port,
+                    self.config.aruco_profile,
+                )
+            except Exception as exc:
+                self._last_error = f"CAMERA_CONFIG_ERROR: {exc}"
+
+    def open(self) -> bool:
+        """Open real resources; simulation has no external lifecycle."""
+        if self.simulation:
+            return True
+        if self.real_backend is None:
+            return False
+        opened = self.real_backend.open()
+        self._last_error = self.real_backend.last_error
+        return opened
+
+    def close(self) -> None:
+        if self.real_backend is not None:
+            self.real_backend.close()
 
     def new_game(self, difficulty: str, human_first: bool) -> bool:
         if difficulty not in (HARD, INTERMEDIATE, PICARO):
@@ -94,13 +131,29 @@ class GameApplication:
         self._last_error = None
         self._action_status = None
         self._action_status_ticks = 0
-        if not self.simulation:
+        if self.simulation:
+            self.runtime = PhysicalGameRuntime(self.session, SimulatedModbusClient())
+            return self.runtime.start(self._physical_state())
+
+        if self.real_backend is None or not self.real_backend.is_open:
             self.runtime = None
-            self._last_error = "REAL_MODE_NOT_CONFIGURED"
+            self._last_error = (
+                self.real_backend.last_error or "HARDWARE_NOT_AVAILABLE"
+                if self.real_backend is not None
+                else self._last_error or "HARDWARE_NOT_AVAILABLE"
+            )
+            return False
+        if self._last_observation is None:
+            self.runtime = None
+            self._last_error = "BOARD_NOT_READY"
             return False
 
-        self.runtime = PhysicalGameRuntime(self.session, SimulatedModbusClient())
-        return self.runtime.start(self._physical_state())
+        self.runtime = PhysicalGameRuntime(
+            self.session, self.real_backend.modbus_client
+        )
+        started = self.runtime.start(self._last_observation)
+        self._last_error = self.runtime.last_error
+        return started
 
     def play_human_cell(self, cell: int) -> bool:
         if not self.simulation or self.runtime is None or self.session is None:
@@ -137,7 +190,10 @@ class GameApplication:
             self._action_status_ticks -= 1
             if self._action_status_ticks == 0:
                 self._action_status = None
-        if not self.simulation or self.runtime is None:
+        if not self.simulation:
+            self._update_real()
+            return
+        if self.runtime is None:
             return
         if self.runtime.state in (RuntimeState.WAITING_ROBOT, RuntimeState.ROBOT_BUSY):
             self.runtime.poll_robot()
@@ -153,6 +209,31 @@ class GameApplication:
                     self._physical_occupied.add(expected)
                     self.runtime.update_board(self._physical_state())
 
+    def _update_real(self) -> None:
+        if self.real_backend is None:
+            return
+        observation = self.real_backend.tick()
+        if observation is not None:
+            self._last_observation = observation
+        if self.real_backend.last_error:
+            self._last_error = self.real_backend.last_error
+        if self.real_backend.camera_status == "ERROR":
+            return
+        if self.runtime is None or observation is None:
+            return
+        if self.runtime.state in (RuntimeState.ERROR, RuntimeState.GAME_OVER):
+            return
+        if self.runtime.state in (
+            RuntimeState.WAITING_ROBOT,
+            RuntimeState.ROBOT_BUSY,
+        ):
+            self.runtime.poll_robot()
+        elif self.runtime.state in (
+            RuntimeState.WAITING_HUMAN,
+            RuntimeState.VERIFYING_ROBOT,
+        ):
+            self.runtime.update_board(observation)
+
     def snapshot(self) -> ApplicationSnapshot:
         if self.session is None:
             return ApplicationSnapshot(
@@ -165,9 +246,17 @@ class GameApplication:
                 pending_robot_move=None,
                 difficulty=None,
                 human_first=None,
-                camera_status="SIMULADA" if self.simulation else "NO CONECTADA",
-                robot_status="SIMULADO" if self.simulation else "NO CONECTADO",
-                board_status="LISTO" if self.simulation else "NO DISPONIBLE",
+                camera_status=(
+                    "SIMULADA"
+                    if self.simulation
+                    else self.real_backend.camera_status
+                    if self.real_backend
+                    else "ERROR"
+                ),
+                robot_status=(
+                    "SIMULADO" if self.simulation else self._robot_status(None)
+                ),
+                board_status="LISTO" if self.simulation else self._board_status(),
                 last_error=self._last_error,
                 simulation=self.simulation,
                 robot_picaro_available=False,
@@ -182,16 +271,26 @@ class GameApplication:
             human_symbol=self.session.human,
             turn=self.session.turn,
             result=self.session.result,
-            runtime_state=runtime_snapshot.state if runtime_snapshot else RuntimeState.ERROR,
+            runtime_state=runtime_snapshot.state if runtime_snapshot else None,
             pending_robot_move=(
                 runtime_snapshot.pending_robot_move if runtime_snapshot else None
             ),
             difficulty=self.session.difficulty,
             human_first=self.session.human == "X",
-            camera_status="SIMULADA" if self.simulation else "NO CONECTADA",
+            camera_status=(
+                "SIMULADA"
+                if self.simulation
+                else self.real_backend.camera_status
+                if self.real_backend
+                else "ERROR"
+            ),
             robot_status=self._robot_status(runtime_snapshot.state if runtime_snapshot else None),
-            board_status="LISTO" if self.simulation else "NO DISPONIBLE",
-            last_error=(runtime_snapshot.last_error if runtime_snapshot else self._last_error),
+            board_status="LISTO" if self.simulation else self._board_status(),
+            last_error=(
+                runtime_snapshot.last_error
+                if runtime_snapshot and runtime_snapshot.last_error
+                else self._last_error
+            ),
             simulation=self.simulation,
             robot_picaro_available=self.session.robot_picaro_available,
             human_picaro_available=self.session.human_picaro_available,
@@ -204,15 +303,28 @@ class GameApplication:
             cell: CellState.OCCUPIED if cell in occupied else CellState.FREE
             for cell in range(1, 10)
         }
-        return PhysicalBoardState(cells, {}, True, 3, 3, 1.0, {})
+        return PhysicalBoardState(cells, {}, True, 3, {})
 
     def _robot_status(self, state: RuntimeState | None) -> str:
         if not self.simulation:
-            return "NO CONECTADO"
+            if self.real_backend is None:
+                return "NO CONECTADO"
+            if self.real_backend.robot_status != "LISTO":
+                return self.real_backend.robot_status
         if state == RuntimeState.ROBOT_BUSY:
             return "EN MOVIMIENTO"
         if state == RuntimeState.VERIFYING_ROBOT:
             return "MOVIMIENTO TERMINADO"
         if state == RuntimeState.ERROR:
             return "ERROR"
+        return "LISTO"
+
+    def _board_status(self) -> str:
+        observation = self._last_observation
+        if observation is None:
+            return "ESPERANDO TABLERO"
+        if not observation.ready:
+            return "NO LISTO"
+        if observation.uncertain_cells:
+            return "INCIERTO"
         return "LISTO"

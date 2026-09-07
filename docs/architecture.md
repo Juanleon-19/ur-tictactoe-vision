@@ -10,7 +10,6 @@ PC / Python                              UR3 / PolyScope
 Cámara
   ↓
 OpenCV + ArUco
-  ├── 4 marcadores externos -> referencia del tablero
   └── 9 marcadores internos -> ID de celda / ocupación
   ↓
 Tablero digital 3×3
@@ -28,7 +27,7 @@ El PC indica **qué casilla** jugar. El UR determina **cómo moverse físicament
 
 En V1 existen dos referencias deliberadamente desacopladas:
 
-1. **Referencia visual del tablero**: definida por cuatro ArUco externos y utilizada por OpenCV.
+1. **Identificación visual de casillas**: definida directamente por IDs 10..18.
 2. **Referencia física del UR**: definida mediante posiciones enseñadas en PolyScope.
 
 ArUco no modifica automáticamente las poses del UR durante V1.
@@ -37,11 +36,9 @@ Esta decisión reduce el riesgo de que un error de estimación visual produzca d
 
 ## Tablero y contrato de IDs
 
-La V1 utiliza dos grupos de marcadores con responsabilidades diferentes.
+La V1 utiliza exclusivamente nueve marcadores de celda, IDs 10..18.
 
 ```text
-ID 0                                             ID 1
-
         ┌─────────┬─────────┬─────────┐
         │ ID 10   │ ID 11   │ ID 12   │
         │ CELL 1  │ CELL 2  │ CELL 3  │
@@ -52,21 +49,7 @@ ID 0                                             ID 1
         │ ID 16   │ ID 17   │ ID 18   │
         │ CELL 7  │ CELL 8  │ CELL 9  │
         └─────────┴─────────┴─────────┘
-
-ID 2                                             ID 3
 ```
-
-### Frame markers
-
-`0,1,2,3` son marcadores persistentes. Deben permanecer visibles mientras el sistema esté habilitado y se usarán para:
-
-- localizar el tablero;
-- verificar orientación;
-- detectar desplazamientos;
-- confirmar que la referencia visual requerida permanece disponible.
-
-La identificación directa por IDs es suficiente para V1 mientras las pruebas sean
-fiables; la homografía no es un requisito inicial.
 
 ### Cell markers
 
@@ -82,18 +65,32 @@ Su ausencia estable será una **señal candidata de ocupación**, no una confirm
 
 ## Modelo de ocupación previsto
 
+`BoardObserver` trabaja únicamente con la historia de IDs 10..18. Cada captura
+procesada aporta una muestra, incluso si no se detecta ningún marcador. Los IDs
+ajenos a las celdas se ignoran. Un error de captura no aporta una muestra.
+
+Se conservan `window_seconds=1.5`, `evaluation_period_seconds=0.25`,
+`state_change_seconds=0.5`, `free_ratio=0.70`, `occupied_ratio=0.20` y
+`min_valid_samples=3`. Este último indica el mínimo de muestras capturadas dentro
+de la ventana; no existe un filtro por referencias geométricas.
+
+`ready` indica que hay muestras suficientes, no que el tablero esté vacío o que
+la imagen sea inequívoca. El inicio de partida exige además ausencia de celdas
+`OCCUPIED` y `UNCERTAIN`. El flicker ocasional se absorbe mediante los ratios
+temporales. Una oclusión prolongada aún puede parecer ocupación y requiere
+validación física; no se incorpora otro clasificador de visión.
+
 Durante una partida:
 
 ```text
 VISIBLE -> FREE
-MISSING transitorio -> UNKNOWN / OCCLUDED
+MISSING transitorio -> historial temporal / UNCERTAIN
 MISSING estable + validaciones -> OCCUPIED
 ```
 
 La transición a `OCCUPIED` deberá considerar:
 
 - persistencia durante varios frames;
-- que la referencia externa del tablero siga válida;
 - que no haya una oclusión transitoria causada por mano o robot;
 - que la casilla estuviera libre en el estado lógico anterior;
 - que el cambio sea coherente con el turno actual.
@@ -109,7 +106,7 @@ porque sus celdas están ocupadas:
 IDs visibles -> nueva ausencia única -> N frames estables -> celda 1..9
 ```
 
-Si `FRAME READY` se pierde o aparecen varias ausencias nuevas, la candidata se
+Si aparecen varias ausencias nuevas, la candidata se
 descarta. El detector solo produce el evento lógico; no decide el turno ni modifica
 el tablero del Game Engine.
 
@@ -135,9 +132,8 @@ vision/app.py
 
 La Fase 1 solo valida detección y roles de IDs:
 
-- `FRAME READY` cuando `0,1,2,3` son visibles;
 - contador de `10..18` visibles;
-- `EMPTY BOARD READY` cuando los 13 marcadores son visibles.
+- listado de IDs de celda faltantes.
 
 No se clasifica ocupación todavía.
 
@@ -266,3 +262,8 @@ corrección automática de posiciones
 ```
 
 Ese alcance no pertenece al MVP.
+
+## Mejoras futuras
+
+Los IDs 0..3 podrían incorporarse como referencia geométrica/homografía opcional.
+No están disponibles ni forman parte del sistema operacional actual.

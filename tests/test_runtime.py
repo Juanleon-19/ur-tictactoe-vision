@@ -25,7 +25,7 @@ def physical(*occupied: int, ready: bool = True, uncertain: tuple[int, ...] = ()
         )
         for cell in range(1, 10)
     }
-    return PhysicalBoardState(cells, {}, ready, 3, 3, 1.0, {})
+    return PhysicalBoardState(cells, {}, ready, 3, {})
 
 
 class FakeModbus:

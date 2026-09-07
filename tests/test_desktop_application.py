@@ -114,4 +114,4 @@ def test_real_mode_does_not_accept_simulated_human_click() -> None:
     assert not app.new_game(HARD, True)
     assert not app.play_human_cell(1)
     assert app.snapshot().board == (None,) * 9
-    assert app.snapshot().last_error == "REAL_MODE_NOT_CONFIGURED"
+    assert app.snapshot().last_error == "HARDWARE_NOT_AVAILABLE"

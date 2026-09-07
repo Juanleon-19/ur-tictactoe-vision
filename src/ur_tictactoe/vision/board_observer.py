@@ -8,7 +8,7 @@ from enum import Enum
 import time
 from collections.abc import Iterable, Mapping
 
-from ur_tictactoe.config import CELL_IDS, FRAME_IDS
+from ur_tictactoe.config import CELL_IDS
 from ur_tictactoe.vision.move_detector import cell_id_to_cell
 
 
@@ -43,9 +43,7 @@ class PhysicalBoardState:
     cells: Mapping[int, CellState]
     visibility_ratio: Mapping[int, float]
     ready: bool
-    valid_samples: int
     total_samples: int
-    frame_readiness_ratio: float
     detection_ratio: Mapping[int, float]
 
     @property
@@ -65,11 +63,10 @@ class PhysicalBoardState:
 class _Sample:
     timestamp: float
     visible_ids: frozenset[int]
-    valid: bool
 
 
 class BoardObserver:
-    """Maintain a stable physical state without treating invalid frames as occupancy."""
+    """Estimate cell occupancy from every successfully captured observation."""
 
     def __init__(self, config: ObserverConfig | None = None) -> None:
         self.config = config or ObserverConfig()
@@ -86,8 +83,8 @@ class BoardObserver:
         self, visible_ids: Iterable[int], timestamp: float | None = None
     ) -> PhysicalBoardState | None:
         now = time.monotonic() if timestamp is None else timestamp
-        visible = frozenset(visible_ids)
-        self._samples.append(_Sample(now, visible, set(FRAME_IDS) <= visible))
+        visible = frozenset(visible_ids) & frozenset(CELL_IDS)
+        self._samples.append(_Sample(now, visible))
         cutoff = now - self.config.window_seconds
         while self._samples and self._samples[0].timestamp < cutoff:
             self._samples.popleft()
@@ -104,13 +101,11 @@ class BoardObserver:
 
     def _evaluate(self, now: float) -> PhysicalBoardState:
         total = len(self._samples)
-        valid = [sample for sample in self._samples if sample.valid]
-        valid_count = len(valid)
-        ready = valid_count >= self.config.min_valid_samples
+        ready = total >= self.config.min_valid_samples
         ratios = {
             cell_id_to_cell(marker_id): (
-                sum(marker_id in sample.visible_ids for sample in valid) / valid_count
-                if valid_count else 0.0
+                sum(marker_id in sample.visible_ids for sample in self._samples) / total
+                if total else 0.0
             )
             for marker_id in CELL_IDS
         }
@@ -119,7 +114,7 @@ class BoardObserver:
                 sum(marker_id in sample.visible_ids for sample in self._samples) / total
                 if total else 0.0
             )
-            for marker_id in FRAME_IDS + CELL_IDS
+            for marker_id in CELL_IDS
         }
 
         if not ready:
@@ -152,9 +147,7 @@ class BoardObserver:
             cells=cells,
             visibility_ratio=ratios,
             ready=ready,
-            valid_samples=valid_count,
             total_samples=total,
-            frame_readiness_ratio=valid_count / total if total else 0.0,
             detection_ratio=detection,
         )
 
@@ -170,44 +163,28 @@ class BoardObserver:
             cells={cell: CellState.UNCERTAIN for cell in range(1, 10)},
             visibility_ratio={cell: 0.0 for cell in range(1, 10)},
             ready=False,
-            valid_samples=0,
             total_samples=0,
-            frame_readiness_ratio=0.0,
-            detection_ratio={marker_id: 0.0 for marker_id in FRAME_IDS + CELL_IDS},
+            detection_ratio={marker_id: 0.0 for marker_id in CELL_IDS},
         )
 
 
 class ArucoStabilityMetrics:
-    """Accumulate one simple session-wide detection summary."""
+    """Accumulate detection ratios for operational cell markers."""
 
     def __init__(self) -> None:
         self.total_samples = 0
-        self.valid_samples = 0
-        self._all_counts = {marker_id: 0 for marker_id in FRAME_IDS + CELL_IDS}
-        self._valid_counts = {marker_id: 0 for marker_id in FRAME_IDS + CELL_IDS}
+        self._counts = {marker_id: 0 for marker_id in CELL_IDS}
 
     def update(self, visible_ids: Iterable[int]) -> None:
         visible = set(visible_ids)
         self.total_samples += 1
-        valid = set(FRAME_IDS) <= visible
-        if valid:
-            self.valid_samples += 1
-        for marker_id in self._all_counts:
+        for marker_id in self._counts:
             if marker_id in visible:
-                self._all_counts[marker_id] += 1
-                if valid:
-                    self._valid_counts[marker_id] += 1
-
-    @property
-    def frame_readiness_ratio(self) -> float:
-        return self.valid_samples / self.total_samples if self.total_samples else 0.0
+                self._counts[marker_id] += 1
 
     @property
     def marker_ids(self) -> tuple[int, ...]:
-        return FRAME_IDS + CELL_IDS
+        return CELL_IDS
 
-    def all_frame_ratio(self, marker_id: int) -> float:
-        return self._all_counts[marker_id] / self.total_samples if self.total_samples else 0.0
-
-    def valid_frame_ratio(self, marker_id: int) -> float:
-        return self._valid_counts[marker_id] / self.valid_samples if self.valid_samples else 0.0
+    def detection_ratio(self, marker_id: int) -> float:
+        return self._counts[marker_id] / self.total_samples if self.total_samples else 0.0

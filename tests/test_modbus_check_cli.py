@@ -84,3 +84,51 @@ def test_modbus_handshake_observes_busy_done_hold_and_ready(capsys) -> None:
     output = capsys.readouterr().out
     assert "STATUS = BUSY" in output
     assert "STATUS HELD = DONE" in output
+
+
+def test_main_dispatches_read_only_modbus(monkeypatch, capsys) -> None:
+    import main as cli
+
+    FakeClient.instances.clear()
+    monkeypatch.setattr(cli, "ModbusClient", FakeClient)
+    monkeypatch.setattr(cli.sys, "argv", ["main.py", "modbus-check", "--host", "test-host"])
+    assert cli.main() == 0
+    client = FakeClient.instances[-1]
+    assert client.writes == []
+    assert client.closed
+    assert "STATUS = READY" in capsys.readouterr().out
+
+
+def test_main_dispatches_handshake_and_resets_command(monkeypatch, capsys) -> None:
+    import main as cli
+
+    class HandshakeClient(FakeClient):
+        def __init__(self, host, port):
+            super().__init__(host, port)
+            self.statuses = iter((0, 1, 2, 2, 0))
+
+        def read_status(self):
+            return next(self.statuses)
+
+    monkeypatch.setattr(cli, "ModbusClient", HandshakeClient)
+    monkeypatch.setattr(cli.sys, "argv", [
+        "main.py", "modbus-check", "--host", "test-host", "--handshake", "5"
+    ])
+    assert cli.main() == 0
+    client = HandshakeClient.instances[-1]
+    assert client.writes == [5, 0]
+    assert client.closed
+    assert "STATUS HELD = DONE" in capsys.readouterr().out
+
+
+def test_main_dispatches_explicit_command(monkeypatch) -> None:
+    import main as cli
+
+    monkeypatch.setattr(cli, "ModbusClient", FakeClient)
+    monkeypatch.setattr(cli.sys, "argv", [
+        "main.py", "modbus-check", "--host", "test-host",
+        "--command", "5", "--allow-write"
+    ])
+    assert cli.main() == 0
+    assert FakeClient.instances[-1].writes == [5]
+    assert FakeClient.instances[-1].closed

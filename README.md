@@ -8,7 +8,7 @@ El primer prototipo utilizará un **UR3**, una cámara fija, Python, OpenCV, mar
 
 Construir un sistema modular capaz de:
 
-1. localizar visualmente un tablero 3×3 mediante marcadores ArUco externos;
+1. observar un tablero 3×3 mediante los ArUco de sus nueve casillas;
 2. identificar individualmente cada casilla mediante un ArUco propio;
 3. detectar si una casilla pasa de libre a ocupada por la oclusión estable de su marcador;
 4. mantener el estado lógico de la partida;
@@ -24,7 +24,6 @@ Cámara
   ↓
 OpenCV + ArUco
   ↓
-4 ArUco externos -> referencia y alineación del tablero
 9 ArUco internos -> identificación de celdas y ocupación
   ↓
 Estado 3×3 + reglas + Minimax
@@ -46,7 +45,6 @@ Python será responsable de:
 
 - adquisición de imagen;
 - detección ArUco;
-- referencia visual y alineación del tablero;
 - asociación ID ArUco ↔ casilla lógica;
 - detección temporal de casillas libres/ocupadas;
 - lógica del juego;
@@ -70,14 +68,11 @@ PolyScope será responsable de:
 
 ## Diseño ArUco de la V1
 
-La V1 utilizará **13 marcadores** del mismo diccionario:
+La V1 utilizará **9 marcadores operacionales** del mismo diccionario:
 
-- 4 marcadores externos persistentes para la referencia visual del tablero;
 - 9 marcadores internos, uno por cada casilla.
 
 ```text
-ID 0                                             ID 1
-
         ┌─────────┬─────────┬─────────┐
         │ ID 10   │ ID 11   │ ID 12   │
         │ CELL 1  │ CELL 2  │ CELL 3  │
@@ -88,18 +83,7 @@ ID 0                                             ID 1
         │ ID 16   │ ID 17   │ ID 18   │
         │ CELL 7  │ CELL 8  │ CELL 9  │
         └─────────┴─────────┴─────────┘
-
-ID 2                                             ID 3
 ```
-
-### Marcadores externos
-
-Los IDs `0,1,2,3` permanecerán visibles durante toda la partida. Su función será:
-
-- localizar el tablero;
-- proporcionar una referencia geométrica estable;
-- permitir rectificación/alineación en una fase posterior;
-- detectar desplazamientos del tablero.
 
 ### Marcadores por casilla
 
@@ -132,8 +116,6 @@ La desaparición de un marcador **no se aceptará inmediatamente como jugada**. 
 
 Las piezas X y O deben diseñarse para **ocultar de forma fiable el marcador ArUco de la casilla** cuando están correctamente colocadas. Un O completamente abierto podría dejar visible un marcador situado en el centro, por lo que el diseño deberá incluir una zona opaca común, puente, base o geometría equivalente que garantice la oclusión del marcador sin perder la apariencia de la pieza.
 
-Los cuatro ArUco externos permanecen visibles incluso cuando las casillas se ocupan; por eso la referencia del tablero no depende de que los marcadores internos sigan visibles.
-
 La homografía, la pose 3D y la calibración se añadirán solo si las pruebas de V1
 demuestran que la identificación directa por IDs no es suficiente.
 
@@ -151,7 +133,7 @@ Los valores definitivos y las direcciones de registros se fijarán durante la fa
 
 ## Fases
 
-1. **Vision & ArUco** — Logitech C920 y detección validada de los 13 IDs.
+1. **Vision & ArUco** — Logitech C920 y detección validada de los nueve IDs de celda.
 2. **Human Move Detection** — desaparición estable del marcador e ID → celda `1..9`.
 3. **Game Engine** — estado 3×3, reglas y Minimax.
 4. **PolyScope** — PICK fijo y nueve subprogramas preenseñados.
@@ -205,16 +187,21 @@ Copy-Item config\vision.example.yaml config\vision.local.yaml
 Ejecutar las pruebas automáticas:
 
 ```powershell
-pytest -q
+python -m pytest -q
 ```
 
-Generar los 13 marcadores ArUco iniciales:
+`pytest.ini` mantiene los temporales en `.pytest-tmp/run` y la caché en
+`.pytest-tmp/cache`, ambos ignorados por Git. No depende del directorio temporal
+global de Windows. Pytest recrea su directorio `run` en cada ejecución; no guardar
+archivos personales allí.
+
+Generar los nueve marcadores ArUco iniciales:
 
 ```powershell
 python scripts\generate_aruco.py
 ```
 
-Generar una hoja digital 1920×1080 con los 13 marcadores para mostrarla a pantalla completa:
+Generar una hoja digital 1920×1080 con los nueve marcadores para mostrarla a pantalla completa:
 
 ```powershell
 python scripts\generate_aruco.py --board
@@ -233,15 +220,19 @@ Observar automáticamente el estado físico temporal del tablero, sin botones ni
 confirmación manual:
 
 ```powershell
+python main.py board-observe
 python main.py board-observe --aruco-profile default
-python main.py board-observe --aruco-profile robust
 ```
 
 El comando muestra preview, FPS, perfil, readiness, ratios por celda y estados
 `FREE`, `OCCUPIED` o `UNCERTAIN`. Al cerrar imprime la estabilidad de detección
-de los 13 IDs. Los parámetros experimentales de ventana, evaluación, histéresis,
+de los nueve IDs de celda. Los parámetros experimentales de ventana, evaluación, histéresis,
 umbrales y mínimo de muestras válidas están en `config/vision.example.yaml` y
 pueden sobrescribirse en la configuración local ignorada por Git.
+
+`board-observe`, `RealGameBackend` y la aplicación real utilizan `robust` por
+defecto. `--aruco-profile default` conserva el perfil diagnóstico de OpenCV en
+`board-observe`; `vision` mantiene `default` y permite seleccionar `robust`.
 
 Validar con cámara la desaparición estable de un marcador de celda como jugada
 humana, sin ejecutar el juego ni comunicarse con el robot:
@@ -251,8 +242,8 @@ python main.py move-detect
 python main.py move-detect --stable-frames 8
 ```
 
-El modo usa la misma configuración de `vision.local.yaml`. Con los 13 ArUco
-visibles debe indicar `FRAME READY` y `Cell markers visible 9/9`. Al cubrir un
+El modo usa la misma configuración de `vision.local.yaml`. Con los nueve ArUco
+visibles debe indicar `Cell markers visible 9/9`. Al cubrir un
 único marcador de celda durante el número configurado de frames, muestra e imprime
 `HUMAN MOVE: CELL N`. Se cierra con `q` o `Esc`.
 
@@ -282,9 +273,8 @@ Durante la Fase 1 la aplicación debe mostrar:
 - IDs detectados;
 - bordes y centros de cada marcador;
 - FPS;
-- `FRAME READY` cuando estén visibles los IDs externos `0,1,2,3`;
 - número de marcadores de celda visibles de `9`;
-- `EMPTY BOARD READY` cuando estén visibles los cuatro marcadores externos y los nueve internos.
+- IDs de celda faltantes, sin inferir ocupación instantánea.
 
 En Fase 1 un marcador interno ausente se reporta únicamente como **missing**; todavía no se clasifica automáticamente como una casilla ocupada.
 
@@ -298,3 +288,8 @@ Si la cámara correcta no corresponde al índice `0`, editar únicamente `config
 
 La Fase 1 está validada experimentalmente. El motor se prueba sin cámara, robot,
 Modbus ni red.
+
+## Mejoras futuras
+
+Los IDs 0..3 podrían incorporarse como referencia geométrica/homografía opcional.
+No están disponibles ni forman parte del sistema operacional actual.

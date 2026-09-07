@@ -360,5 +360,10 @@ class DesktopWindow:
 
 
 def run_desktop_app(simulation: bool) -> int:
-    DesktopWindow(GameApplication(simulation=simulation)).run()
+    application = GameApplication(simulation=simulation)
+    application.open()
+    try:
+        DesktopWindow(application).run()
+    finally:
+        application.close()
     return 0

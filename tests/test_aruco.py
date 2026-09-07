@@ -5,7 +5,7 @@ import numpy as np
 
 from ur_tictactoe.vision.aruco import ArucoDetector, build_detector_parameters
 
-APPROVED_IDS = {0, 1, 2, 3, 10, 11, 12, 13, 14, 15, 16, 17, 18}
+APPROVED_IDS = set(range(10, 19))
 
 
 def test_default_profile_preserves_opencv_defaults() -> None:
@@ -32,7 +32,7 @@ def test_robust_profile_uses_supported_conservative_options() -> None:
 
 def test_detects_generated_marker() -> None:
     dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
-    marker = cv2.aruco.generateImageMarker(dictionary, 0, 200)
+    marker = cv2.aruco.generateImageMarker(dictionary, 10, 200)
 
     canvas = np.full((300, 300), 255, dtype=np.uint8)
     canvas[50:250, 50:250] = marker
@@ -41,7 +41,7 @@ def test_detects_generated_marker() -> None:
     detector = ArucoDetector("DICT_5X5_50")
     result = detector.detect(frame)
 
-    assert result.ids == (0,)
+    assert result.ids == (10,)
     assert len(result.corners) == 1
 
 
@@ -55,7 +55,7 @@ def test_returns_empty_result_when_no_marker_exists() -> None:
     assert result.corners == ()
 
 
-def test_detects_all_thirteen_approved_markers_in_synthetic_image() -> None:
+def test_detects_all_nine_operational_markers_in_synthetic_image() -> None:
     dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
     marker_size = 100
     margin = 25
@@ -73,4 +73,4 @@ def test_detects_all_thirteen_approved_markers_in_synthetic_image() -> None:
     )
 
     assert result.id_set == APPROVED_IDS
-    assert len(result.ids) == 13
+    assert len(result.ids) == 9

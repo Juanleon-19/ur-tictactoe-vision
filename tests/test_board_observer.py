@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ur_tictactoe.config import CELL_IDS, FRAME_IDS
+from ur_tictactoe.config import CELL_IDS
 from ur_tictactoe.vision.board_observer import (
     BoardObserver,
     CellState,
@@ -8,7 +8,7 @@ from ur_tictactoe.vision.board_observer import (
 )
 from ur_tictactoe.vision.move_detector import cell_id_to_cell
 
-ALL_IDS = set(FRAME_IDS + CELL_IDS)
+ALL_IDS = set(CELL_IDS)
 
 
 def _observer(**overrides) -> BoardObserver:
@@ -76,25 +76,60 @@ def test_intermediate_ratio_is_uncertain() -> None:
     assert state.cells[1] == CellState.UNCERTAIN
 
 
-def test_missing_frame_id_produces_not_ready() -> None:
-    state = _feed(_observer(), [ALL_IDS - {0}] * 5)
+def test_readiness_requires_minimum_samples_only() -> None:
+    observer = BoardObserver()
+    for index in range(2):
+        state = observer.update(ALL_IDS, index * 0.3)
+        assert not state.ready
+        assert state.uncertain_cells == frozenset(range(1, 10))
+    state = observer.update(ALL_IDS, 0.6)
+    assert state.ready
+    assert state.total_samples == 3
+    assert state.free_cells == frozenset(range(1, 10))
 
-    assert not state.ready
-    assert state.valid_samples == 0
-    assert state.total_samples == 5
 
-
-def test_invalid_frames_do_not_contaminate_visibility_ratios() -> None:
-    invalid_without_cell = ALL_IDS - {0, 10}
+def test_absences_are_included_in_visibility_history() -> None:
     state = _feed(
         _observer(window_seconds=2.0),
-        [ALL_IDS, invalid_without_cell, ALL_IDS, invalid_without_cell],
+        [ALL_IDS, ALL_IDS - {10}, ALL_IDS, ALL_IDS - {10}],
     )
-
-    assert state.valid_samples == 2
+    assert state.ready
     assert state.total_samples == 4
-    assert state.visibility_ratio[1] == 1.0
-    assert state.frame_readiness_ratio == 0.5
+    assert state.visibility_ratio[1] == 0.5
+    assert state.cells[1] == CellState.UNCERTAIN
+
+
+def test_id18_occasional_flicker_is_absorbed_with_operational_defaults() -> None:
+    observer = BoardObserver()
+    _feed(observer, [ALL_IDS] * 16)
+    for index in range(30):
+        ids = ALL_IDS - {18} if index % 5 == 0 else ALL_IDS
+        observer.update(ids, 1.6 + index * 0.1)
+        assert observer.state.ready
+        assert observer.state.cells[9] == CellState.FREE
+
+
+def test_empty_detections_are_samples_and_window_expires() -> None:
+    observer = BoardObserver()
+    _feed(observer, [ALL_IDS] * 10)
+    state = _feed(observer, [set()] * 30, start=1.0)
+    assert state.ready
+    assert state.occupied_cells == frozenset(range(1, 10))
+    state = observer.update(ALL_IDS, 10.0)
+    assert not state.ready
+    assert state.total_samples == 1
+
+
+def test_metrics_only_count_operational_ids() -> None:
+    from ur_tictactoe.vision.board_observer import ArucoStabilityMetrics
+
+    metrics = ArucoStabilityMetrics()
+    metrics.update(ALL_IDS | {49})
+    metrics.update(ALL_IDS - {18})
+    assert metrics.marker_ids == CELL_IDS
+    assert metrics.total_samples == 2
+    assert metrics.detection_ratio(18) == 0.5
+    assert metrics.detection_ratio(10) == 1.0
 
 
 def test_cell_marker_ids_map_to_cells_one_through_nine() -> None:

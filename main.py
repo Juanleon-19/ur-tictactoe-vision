@@ -30,7 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="UR Tic-Tac-Toe Vision development tools"
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
     vision_parser = subparsers.add_parser(
         "vision", help="Open the camera and detect ArUco markers"
@@ -68,8 +68,8 @@ def build_parser() -> argparse.ArgumentParser:
     board_observe_parser.add_argument(
         "--aruco-profile",
         choices=ARUCO_PROFILES,
-        default="default",
-        help="ArUco detector profile (default: default)",
+        default="robust",
+        help="ArUco detector profile (default: robust)",
     )
     move_detect_parser.add_argument(
         "--stable-frames",
@@ -127,7 +127,7 @@ STATUS_NAMES = {
 }
 
 
-def run_modbus_check(args: argparse.Namespace, client_factory=ModbusClient) -> int:
+def run_modbus_check(args: argparse.Namespace, client_factory=None) -> int:
     if args.command is not None and args.handshake is not None:
         print("ERROR: --command and --handshake are mutually exclusive.", file=sys.stderr)
         return 2
@@ -135,7 +135,7 @@ def run_modbus_check(args: argparse.Namespace, client_factory=ModbusClient) -> i
         print("ERROR: --command requires --allow-write.", file=sys.stderr)
         return 2
 
-    client = client_factory(args.host, port=args.port)
+    client = (client_factory or ModbusClient)(args.host, port=args.port)
     try:
         client.connect()
         print("CONNECTION OK")
@@ -250,7 +250,7 @@ def run_game(
 def main() -> int:
     args = build_parser().parse_args()
 
-    if args.command in ("vision", "move-detect", "board-observe"):
+    if args.subcommand in ("vision", "move-detect", "board-observe"):
         config_path = args.config
         if not config_path.exists():
             fallback = ROOT / "config" / "vision.example.yaml"
@@ -261,22 +261,22 @@ def main() -> int:
             config_path = fallback
 
         config = load_vision_config(config_path)
-        if args.command == "move-detect":
+        if args.subcommand == "move-detect":
             return run_move_detection(config, args.stable_frames)
-        if args.command == "board-observe":
+        if args.subcommand == "board-observe":
             return run_board_observer(config, args.aruco_profile)
         return run_vision(config, args.aruco_profile)
 
-    if args.command == "cameras":
+    if args.subcommand == "cameras":
         return run_camera_discovery()
 
-    if args.command == "game":
+    if args.subcommand == "game":
         return run_game(args.human_first, args.seed, args.difficulty)
 
-    if args.command == "modbus-check":
+    if args.subcommand == "modbus-check":
         return run_modbus_check(args)
 
-    if args.command == "app":
+    if args.subcommand == "app":
         return run_desktop_app(args.simulate)
 
     return 0

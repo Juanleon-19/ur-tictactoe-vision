@@ -40,7 +40,6 @@ class HumanMoveDetector:
     def update(
         self,
         visible_cell_ids: Iterable[int],
-        frame_ready: bool,
         occupied_cells: Iterable[int],
     ) -> int | None:
         visible = set(visible_cell_ids)
@@ -53,9 +52,6 @@ class HumanMoveDetector:
             cell_to_marker_id(cell)
 
         self._pending_cells.difference_update(occupied)
-        if not frame_ready:
-            self._reset_candidate()
-            return None
 
         expected_cells = occupied | self._pending_cells
         expected_missing = {cell_to_marker_id(cell) for cell in expected_cells}

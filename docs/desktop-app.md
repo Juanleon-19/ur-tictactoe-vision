@@ -7,6 +7,8 @@ Tkinter GUI
     ↓ comandos y snapshots
 GameApplication
     ↓
+RealGameBackend (modo real)
+    ↓
 PhysicalGameRuntime
     ↓
 GameSession / Modbus / PhysicalBoardState
@@ -45,18 +47,41 @@ Al seleccionar Pícaro se muestra `PÍCARO · SOLO SIMULACIÓN`.
 python main.py app
 ```
 
-La pantalla y sus controles quedan disponibles, pero esta rama no abre hardware.
-Las celdas no son clicables y el inicio informa `REAL_MODE_NOT_CONFIGURED`. La
-integración posterior inyectará estas dos fronteras sin cambiar la GUI:
+`RealGameBackend` encapsula `Camera`, `ArucoDetector`, `BoardObserver` y
+`ModbusClient`. Construirlo no abre dispositivos. `open()` intenta abrir cámara y
+conectar Modbus de forma independiente, `tick()` captura como máximo un frame y
+actualiza la observación, y `close()` libera ambos recursos de forma idempotente.
 
 ```text
 Camera -> ArucoDetector -> BoardObserver -> PhysicalGameRuntime
 ModbusClient -> UR
 ```
 
+La partida solo comienza cuando existe una observación `ready`, sin celdas
+inciertas ni ocupadas. Estas condiciones se delegan en
+`PhysicalGameRuntime.start()`. Durante la partida, DONE conduce a
+`VERIFYING_ROBOT`; el movimiento lógico no se confirma ni se limpia COMMAND hasta
+que la visión observa la celda esperada.
+
+El observador usa exclusivamente IDs 10..18 y cuenta las capturas dentro de su
+ventana temporal. No requiere marcadores de referencia geométrica. `AppConfig`
+permite seleccionar `aruco_profile="default"` para diagnóstico; el valor
+operacional es `robust`.
+
+La GUI sigue consumiendo comandos y snapshots: no abre dispositivos ni interpreta
+ArUcos. Las casillas no son clicables en modo real. Los estados distinguen cámara,
+robot y tablero, y los fallos de apertura quedan en `last_error` sin cerrar la GUI.
+Los tests inyectan cámaras, detectores, observers y clientes Modbus pequeños, sin
+usar sockets ni hardware real.
+
 En modo real Pícaro permanece deshabilitado. Una sustitución no cambia el estado
 `FREE/OCCUPIED`, por lo que hará falta identificar el propietario físico mediante
 X verde y O amarilla, e integrar posteriormente HSV y las acciones UR.
+
+La C920 fue detectada y validada a 1280×720 @ 30 FPS. El perfil `robust`
+mejoró la detección y es el predeterminado del backend real y de `AppConfig`.
+Los IDs 10..18 se han observado 9/9; ID18 presenta más flicker.
+La prueba end-to-end con C920, tablero físico y UR sigue pendiente.
 
 Los valores iniciales de conexión están en `AppConfig` y se documentan en
 `config/app.example.yaml`; no se guardan secretos ni parámetros físicos.

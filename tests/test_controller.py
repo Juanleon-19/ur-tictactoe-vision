@@ -60,7 +60,7 @@ def make_controller(
 
 def test_human_turn_without_disappearance_does_nothing() -> None:
     controller, transport = make_controller(human_first=True)
-    assert controller.step(True, ALL_VISIBLE) is None
+    assert controller.step(ALL_VISIBLE) is None
     assert controller.session.board.cells == (None,) * 9
     assert transport.reads == []
 
@@ -68,22 +68,22 @@ def test_human_turn_without_disappearance_does_nothing() -> None:
 def test_stable_disappearance_returns_and_applies_human_move() -> None:
     controller, _ = make_controller(human_first=True)
     visible = ALL_VISIBLE - {14}
-    assert controller.step(True, visible) is None
-    assert controller.step(True, visible) == 5
+    assert controller.step(visible) is None
+    assert controller.step(visible) == 5
     assert controller.session.board.cell(5) == controller.session.human
     assert controller.session.turn == ROBOT
 
 
 def test_visual_event_is_ignored_during_robot_turn() -> None:
     controller, _ = make_controller(statuses=(STATUS_BUSY,), stable_frames=1)
-    controller.step(True, ALL_VISIBLE - {14})
+    controller.step(ALL_VISIBLE - {14})
     assert controller.session.board.cell(5) is None
     assert controller.session.pending_robot_move is not None
 
 
 def test_robot_turn_requests_pending_move() -> None:
     controller, _ = make_controller(statuses=(STATUS_BUSY,))
-    controller.step(True, ALL_VISIBLE)
+    controller.step(ALL_VISIBLE)
     assert controller.session.pending_robot_move in range(1, 10)
 
 
@@ -91,18 +91,18 @@ def test_ready_writes_command_exactly_once() -> None:
     controller, transport = make_controller(
         statuses=(STATUS_READY, STATUS_READY),
     )
-    controller.step(True, ALL_VISIBLE)
+    controller.step(ALL_VISIBLE)
     pending = controller.session.pending_robot_move
-    controller.step(True, ALL_VISIBLE)
+    controller.step(ALL_VISIBLE)
     assert transport.writes == [(COMMAND_REGISTER, pending)]
     assert controller.command_sent
 
 
 def test_busy_keeps_pending_move_and_board_unchanged() -> None:
     controller, _ = make_controller(statuses=(STATUS_READY, STATUS_BUSY))
-    controller.step(True, ALL_VISIBLE)
+    controller.step(ALL_VISIBLE)
     pending = controller.session.pending_robot_move
-    controller.step(True, ALL_VISIBLE)
+    controller.step(ALL_VISIBLE)
     assert controller.session.pending_robot_move == pending
     assert controller.session.board.cell(pending) is None
 
@@ -111,10 +111,10 @@ def test_done_confirms_board_clears_command_and_returns_human_turn() -> None:
     controller, transport = make_controller(
         statuses=(STATUS_READY, STATUS_BUSY, STATUS_DONE),
     )
-    controller.step(True, ALL_VISIBLE)
+    controller.step(ALL_VISIBLE)
     pending = controller.session.pending_robot_move
-    controller.step(True, ALL_VISIBLE)
-    controller.step(True, ALL_VISIBLE)
+    controller.step(ALL_VISIBLE)
+    controller.step(ALL_VISIBLE)
     assert controller.session.board.cell(pending) == controller.session.robot
     assert controller.session.pending_robot_move is None
     assert controller.session.turn == HUMAN
@@ -127,14 +127,14 @@ def test_error_cancels_without_board_change_and_allows_retry() -> None:
         statuses=(STATUS_READY, STATUS_ERROR, STATUS_READY),
     )
     original = controller.session.board.cells
-    controller.step(True, ALL_VISIBLE)
-    controller.step(True, ALL_VISIBLE)
+    controller.step(ALL_VISIBLE)
+    controller.step(ALL_VISIBLE)
     assert controller.session.board.cells == original
     assert controller.session.pending_robot_move is None
     assert controller.session.turn == ROBOT
     assert transport.writes[-1] == (COMMAND_REGISTER, 0)
 
-    controller.step(True, ALL_VISIBLE)
+    controller.step(ALL_VISIBLE)
     assert controller.session.pending_robot_move is not None
     assert controller.command_sent
 
@@ -153,7 +153,7 @@ def test_game_over_does_not_read_status_or_write_command() -> None:
     session.play_human_move(8)
     assert not session.is_active
 
-    controller.step(True, ALL_VISIBLE)
+    controller.step(ALL_VISIBLE)
     assert transport.reads == []
     assert transport.writes == []
 
@@ -164,7 +164,7 @@ def test_controller_uses_session_difficulty(difficulty: str) -> None:
         difficulty=difficulty,
         statuses=(STATUS_READY,),
     )
-    controller.step(True, ALL_VISIBLE)
+    controller.step(ALL_VISIBLE)
     assert controller.session.pending_robot_move is not None
     assert transport.writes[0][0] == COMMAND_REGISTER
 
@@ -175,9 +175,9 @@ def test_complete_simulated_game_reaches_draw() -> None:
     human_moves = (5, 3, 4, 8)
 
     for human_move in human_moves:
-        controller.step(True, ALL_VISIBLE)
-        controller.step(True, ALL_VISIBLE)
-        controller.step(True, ALL_VISIBLE)
+        controller.step(ALL_VISIBLE)
+        controller.step(ALL_VISIBLE)
+        controller.step(ALL_VISIBLE)
         assert controller.session.turn == HUMAN
 
         missing = {
@@ -186,11 +186,11 @@ def test_complete_simulated_game_reaches_draw() -> None:
             if controller.session.board.cell(cell) is not None
         }
         missing.add(cell_to_marker_id(human_move))
-        assert controller.step(True, ALL_VISIBLE - missing) == human_move
+        assert controller.step(ALL_VISIBLE - missing) == human_move
 
-    controller.step(True, ALL_VISIBLE)
-    controller.step(True, ALL_VISIBLE)
-    controller.step(True, ALL_VISIBLE)
+    controller.step(ALL_VISIBLE)
+    controller.step(ALL_VISIBLE)
+    controller.step(ALL_VISIBLE)
 
     assert controller.session.result == DRAW
     assert not controller.session.is_active
@@ -204,18 +204,18 @@ def test_end_to_end_error_leaves_robot_ready_to_retry() -> None:
         human_first=True,
         stable_frames=1,
     )
-    assert controller.step(True, ALL_VISIBLE - {14}) == 5
+    assert controller.step(ALL_VISIBLE - {14}) == 5
     human_board = controller.session.board.cells
 
-    controller.step(True, ALL_VISIBLE)
+    controller.step(ALL_VISIBLE)
     failed_move = controller.session.pending_robot_move
-    controller.step(True, ALL_VISIBLE)
+    controller.step(ALL_VISIBLE)
 
     assert controller.session.board.cells == human_board
     assert controller.session.board.cell(failed_move) is None
     assert controller.session.pending_robot_move is None
     assert controller.session.turn == ROBOT
 
-    controller.step(True, ALL_VISIBLE)
+    controller.step(ALL_VISIBLE)
     assert controller.session.pending_robot_move is not None
     assert transport.writes[-1][0] == COMMAND_REGISTER

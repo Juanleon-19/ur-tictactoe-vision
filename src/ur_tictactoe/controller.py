@@ -31,7 +31,6 @@ class GameController:
 
     def step(
         self,
-        frame_ready: bool,
         visible_cell_ids: Iterable[int],
     ) -> int | None:
         """Process one observation or one Modbus status without blocking."""
@@ -41,7 +40,6 @@ class GameController:
         if self.session.turn == HUMAN:
             human_move = self.move_detector.update(
                 visible_cell_ids,
-                frame_ready,
                 self._occupied_cells(),
             )
             if human_move is not None:
