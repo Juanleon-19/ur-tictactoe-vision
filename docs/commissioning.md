@@ -34,7 +34,7 @@ su procedencia la declara el operador, no constituye una certificación del SHA.
 | Paso | Procedimiento y criterio |
 |---|---|
 | C0 SOFTWARE | Python, dependencias instaladas, configuración cargada y resultados del XML pytest. |
-| C1 CAMERA | Captura durante ventana configurable; resolución, FPS declarado/efectivo/medido y perfil robust. Cierre garantizado. |
+| C1 CAMERA | Solo Camera: apertura, ajustes, frames válidos durante ventana configurable, resolución y FPS declarado/efectivo/medido. Cierre garantizado; no crea detector ni observer. |
 | C2 ARUCO | Solo IDs 10..18 en resultados; porcentaje por frame, ID18 explícito. FAIL si algún ID nunca se vio. PASS no significa visibilidad suficiente: revisar porcentajes. |
 | C3 BOARD EMPTY | Confirmar tablero vacío; observer ready, nueve FREE y aceptación de `PhysicalGameRuntime.start`. Ningún I/O de robot. |
 | C4 OCCUPANCY | Referencia vacía; confirmar ficha 5 y luego exactamente 1,5,9. Cada ventana debe terminar estable, sin UNCERTAIN ni ocupaciones adicionales. |
@@ -79,6 +79,16 @@ local de sesión. No introducir secretos en el campo host. Reports está ignorad
 Estos ensayos físicos **no se han ejecutado** durante el desarrollo del runner.
 Los tests de pytest usan cámara, reloj, detección y transporte falsos; el
 observador y la puerta de aceptación de runtime son los productivos.
+
+C1 registra `camera_index`, `backend`, `resolution`, `configured_fps`, `camera_fps`,
+`measured_fps`, `frames` y `elapsed_seconds`. La ventana y el FPS medido empiezan
+después de abrir y consultar ajustes; la duración total del resultado incluye
+apertura y cierre. PASS requiere al menos un frame y que todas las lecturas sean
+válidas; no exige 30 FPS, ArUcos ni tablero listo. El tiempo de apertura/lectura
+del controlador de cámara puede exceder la ventana: no es un timeout del driver.
+Los errores incluyen `error_type` y una etiqueta fija `failure_stage`, como
+`camera_open`, `camera_settings`, `camera_read`, `camera_close`, `aruco_detection`,
+`observer`, `modbus_connect` o `modbus_read`. No se serializan mensajes arbitrarios.
 
 ## Preparación rápida para el operador
 

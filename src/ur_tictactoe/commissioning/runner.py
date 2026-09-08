@@ -1,6 +1,7 @@
 """Injectable lifecycle, abort gates and bounded physical observations."""
 
 from dataclasses import asdict
+from contextlib import contextmanager
 import math
 import time
 
@@ -54,6 +55,15 @@ class Runner:
         if self.aborted:
             raise Aborted()
 
+    @contextmanager
+    def stage(self, name):
+        """Record only a fixed internal stage label, never exception text."""
+        try:
+            yield
+        except Exception:
+            self.current_observed.setdefault("failure_stage", name)
+            raise
+
     def confirm(self, message):
         self.check_abort()
         try:
@@ -80,33 +90,86 @@ class Runner:
         self.check_abort()
         if not self.app_config.robot_host:
             raise Blocked("Host del robot no configurado")
-        client = self.modbus_factory(
-            self.app_config.robot_host, port=self.app_config.robot_port,
-        )
+        with self.stage("modbus_connect"):
+            client = self.modbus_factory(
+                self.app_config.robot_host, port=self.app_config.robot_port,
+            )
         try:
-            client.connect()
+            with self.stage("modbus_connect"):
+                client.connect()
         except BaseException:
             client.close()
             raise
         return client
 
+    @contextmanager
+    def opened_camera(self):
+        """Shared lifecycle using the production Camera, with safe error stages."""
+        self.check_abort()
+        with self.stage("camera_open"):
+            camera = self.camera_factory(self.vision_config.camera)
+        try:
+            with self.stage("camera_open"):
+                camera.open()
+            with self.stage("camera_settings"):
+                settings = asdict(camera.effective_settings)
+            yield camera, settings
+        finally:
+            with self.stage("camera_close"):
+                camera.close()
+
+    def sample_camera(self):
+        """C1: acquire frames only; no detector, observer or board requirement.
+
+        Every read must succeed. Acquisition timing starts after open/settings;
+        the Result duration still includes camera startup and cleanup.
+        """
+        config = self.vision_config.camera
+        values = self.current_observed
+        values.update(camera_index=config.index, backend=config.backend,
+                      configured_fps=config.fps, frames=0, elapsed_seconds=0.0,
+                      measured_fps=0.0)
+        with self.opened_camera() as (camera, settings):
+            values.update(resolution=[settings["width"], settings["height"]],
+                          camera_fps=settings["fps"])
+            started = self.clock()
+            try:
+                while self.clock() - started < self.window:
+                    self.check_abort()
+                    with self.stage("camera_read"):
+                        frame = camera.read()
+                        if frame is None or getattr(frame, "size", 1) == 0:
+                            raise RuntimeError("Invalid camera frame")
+                    values["frames"] += 1
+                    self.sleep(0.001)
+                with self.stage("camera_read"):
+                    if not values["frames"]:
+                        raise RuntimeError("No frames captured")
+            finally:
+                values["elapsed_seconds"] = self.clock() - started
+                if values["elapsed_seconds"] > 0:
+                    values["measured_fps"] = values["frames"] / values["elapsed_seconds"]
+        return values
+
     def sample(self, *, observer=None, seconds=None):
         self.check_abort()
-        camera = self.camera_factory(self.vision_config.camera)
-        observer = observer or self.observer_factory(self.vision_config.observer)
-        detector = self.detector_factory(self.vision_config.aruco.dictionary, "robust")
+        with self.stage("observer"):
+            observer = observer or self.observer_factory(self.vision_config.observer)
+        with self.stage("aruco_detection"):
+            detector = self.detector_factory(self.vision_config.aruco.dictionary, "robust")
         counts = dict.fromkeys(CELL_IDS, 0)
         frames = 0
         started = self.clock()
-        try:
-            camera.open()
-            settings = asdict(camera.effective_settings)
+        with self.opened_camera() as (camera, settings):
             duration = self.window if seconds is None else seconds
             while self.clock() - started < duration:
                 self.check_abort()
-                frame = camera.read()
-                visible = detector.detect(frame).id_set.intersection(CELL_IDS)
-                observer.update(visible, timestamp=self.clock())
+                with self.stage("camera_read"):
+                    frame = camera.read()
+                with self.stage("aruco_detection"):
+                    visible = detector.detect(frame).id_set.intersection(CELL_IDS)
+                with self.stage("observer"):
+                    observer.update(visible, timestamp=self.clock())
                 for marker in visible:
                     counts[marker] += 1
                 frames += 1
@@ -125,8 +188,6 @@ class Runner:
                 "board_ready": observer.state.ready,
                 "cells": {str(k): v.value for k, v in observer.state.cells.items()},
             }
-        finally:
-            camera.close()
 
     def run(self, selected):
         from .tests import STEPS

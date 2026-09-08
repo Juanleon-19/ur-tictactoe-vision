@@ -120,6 +120,115 @@ def test_read_only_steps_use_fakes_without_writes(make_runner, step):
     assert r.report.configuration["cell_ids"] == list(range(10, 19))
 
 
+def test_c1_is_independent_of_detector_and_observer(make_runner):
+    def forbidden(*args):
+        pytest.fail("C1 must not construct vision processors")
+    r = make_runner(detector_factory=forbidden, observer_factory=forbidden)
+    result = r.run(["C1"]).results[0]
+    assert result.status == "PASS"
+    assert result.observed["frames"] > 0
+    assert result.observed["elapsed_seconds"] >= r.window
+    assert result.observed["camera_index"] == r.vision_config.camera.index
+    assert result.observed["backend"] == r.vision_config.camera.backend
+    assert result.observed["resolution"] == [640, 480]
+    assert result.observed["configured_fps"] == r.vision_config.camera.fps
+    assert result.observed["camera_fps"] == 30
+    assert result.observed["measured_fps"] == pytest.approx(
+        result.observed["frames"] / result.observed["elapsed_seconds"])
+    assert not {"board_ready", "visible_ids", "cells", "profile"} & result.observed.keys()
+    assert all(c.closed for c in r.fake_cameras)
+
+
+@pytest.mark.parametrize("stage", ["camera_open", "camera_settings", "camera_read", "camera_close"])
+def test_c1_failure_stage_is_safe_and_camera_is_closed(make_runner, stage):
+    class BrokenCamera:
+        closed = False
+
+        def open(self):
+            if stage == "camera_open":
+                raise RuntimeError("secret/path/device information")
+
+        @property
+        def effective_settings(self):
+            if stage == "camera_settings":
+                raise RuntimeError("secret/path/device information")
+            return CameraSettings(1280, 720, 30)
+
+        def read(self):
+            if stage == "camera_read":
+                raise RuntimeError("secret/path/device information")
+            return object()
+
+        def close(self):
+            self.closed = True
+            if stage == "camera_close":
+                raise RuntimeError("secret/path/device information")
+
+    camera = BrokenCamera()
+    r = make_runner(camera_factory=lambda _: camera)
+    result = r.run(["C1"]).results[0]
+    assert result.status == "FAIL"
+    assert result.observed["failure_stage"] == stage
+    assert result.observed["error_type"] == "RuntimeError"
+    assert camera.closed
+    assert "secret" not in str(result)
+
+
+@pytest.mark.parametrize("frame", [None, SimpleNamespace(size=0)])
+def test_c1_rejects_invalid_frames(make_runner, frame):
+    camera = Camera(None)
+    camera.read = lambda: frame
+    r = make_runner(camera_factory=lambda _: camera)
+    result = r.run(["C1"]).results[0]
+    assert result.status == "FAIL"
+    assert result.observed["failure_stage"] == "camera_read"
+    assert result.observed["frames"] == 0
+    assert camera.closed
+
+
+def test_c1_acquisition_window_excludes_slow_open_and_has_no_30fps_requirement(make_runner):
+    r = make_runner(window=1)
+    camera = Camera(None)
+    camera.open = lambda: r.sleep(5)
+
+    def read():
+        r.sleep(1 / 15)
+        return object()
+
+    camera.read = read
+    r.camera_factory = lambda _: camera
+    result = r.run(["C1"]).results[0]
+    assert result.status == "PASS"
+    assert 1 <= result.observed["elapsed_seconds"] < 1.1
+    assert 14 < result.observed["measured_fps"] < 16
+    assert result.duration_seconds >= 6
+    assert result.observed["frames"] >= 14
+    assert camera.closed
+
+
+@pytest.mark.parametrize("component, stage", [
+    ("detector", "aruco_detection"), ("observer", "observer"),
+])
+def test_c2_still_runs_vision_and_reports_safe_stages(make_runner, component, stage):
+    r = make_runner()
+    calls = []
+
+    def fail(*args, **kwargs):
+        calls.append(True)
+        raise RuntimeError("secret detector/observer details")
+
+    if component == "detector":
+        r.detector_factory = lambda *args: SimpleNamespace(detect=fail)
+    else:
+        r.observer_factory = lambda *args: SimpleNamespace(update=fail)
+    result = r.run(["C2"]).results[0]
+    assert calls
+    assert result.status == "FAIL"
+    assert result.observed["failure_stage"] == stage
+    assert "secret" not in str(result)
+    assert all(c.closed for c in r.fake_cameras)
+
+
 @pytest.mark.parametrize("step", ["C7", "C8", "C9"])
 def test_motion_requires_flag_before_connect_or_prompt(make_runner, step):
     def forbidden(*args, **kwargs):
@@ -193,6 +302,7 @@ def test_modbus_error_is_fail_and_closes(make_runner, operation):
     result = r.run(["C6"]).results[0]
     assert result.status == "FAIL"
     assert result.observed["error_type"] == "RuntimeError"
+    assert result.observed["failure_stage"] == ("modbus_connect" if operation == "connect" else "modbus_read")
     assert r.fake_robot.closed
     assert not r.fake_robot.writes
     assert "sensitive" not in str(result)

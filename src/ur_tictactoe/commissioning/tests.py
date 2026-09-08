@@ -34,12 +34,12 @@ def software(r):
 
 
 def camera(r):
-    _, values = r.sample()
-    r.current_observed.update(values)
+    r.sample_camera()
 
 
 def aruco(r):
-    camera(r)
+    _, values = r.sample()
+    r.current_observed.update(values)
     if any(percent == 0 for percent in r.current_observed["visibility_percent"].values()):
         raise RuntimeError("Missing operational markers")
     r.current_comments.append("PASS indica cada ID visto al menos una vez; revisar porcentajes, especialmente ID18.")
@@ -97,7 +97,8 @@ def connectivity(r):
     client = r.connect()
     try:
         r.check_abort()
-        r.current_observed.update(tcp_connected=True, register=129, status129=client.read_status())
+        with r.stage("modbus_read"):
+            r.current_observed.update(tcp_connected=True, register=129, status129=client.read_status())
     finally:
         client.close()
 
