@@ -8,7 +8,12 @@
   logo, casillas vacías, cancelación Pícaro y errores de cámara/robot.
 - Tcl/Tk funciona desde el intérprete del proyecto fuera del aislamiento;
   no se alteraron variables globales ni se ocultaron errores del intérprete.
-- Packaging Windows reproducible y smoke del ejecutable: siguiente bloque.
+- Packaging Windows onedir construido desde cero; smoke de proceso PASS en
+  simulación y real, con cierre controlado. Smoke visual NOT CONFIRMED por falta
+  de control de escritorio; no bloquea el cierre de software autorizado.
+- Runner de commissioning independiente C0–C14 preparado; C0 ejecutado con
+  evidencia pytest. C1–C9 físicos pendientes; C10–C14 bloqueados por configuración
+  e integración física. Sin modificaciones al URScript ni ejecución del robot.
 - La validación física de UR, Robotiq y calibración sigue pendiente.
 
 Este documento define el orden de implementación del proyecto. Cada fase debe cerrar con un resultado verificable antes de iniciar la siguiente.
@@ -219,12 +224,13 @@ justifican.
 
 ## Fase 8 — Desktop / Distribution
 
-**Estado:** GUI desktop implementada; distribución pendiente.
+**Estado:** GUI desktop implementada; EXE onedir construido y smoke de proceso
+PASS en ambos modos. Inspección visual del EXE no confirmada; aceptación física pendiente.
 
 ### Entregables
 
 - aplicación CustomTkinter: implementada;
-- ejecutable PyInstaller: pendiente;
+- ejecutable PyInstaller onedir: construido, smoke de proceso PASS;
 - instalador: pendiente.
 
 ## Regla de avance

@@ -25,9 +25,12 @@ Thumbs.db
 config/*.local.yaml
 config/*.local.yml
 config/*.local.json
+config/app.yaml
+config/vision.yaml
 calibration/*.local.*
 
 # Runtime output
+reports/
 logs/
 output/
 captures/

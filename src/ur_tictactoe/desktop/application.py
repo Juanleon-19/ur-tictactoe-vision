@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
 from ur_tictactoe.communication import STATUS_BUSY, STATUS_DONE, STATUS_READY
 from ur_tictactoe.config import load_vision_config
 from ur_tictactoe.desktop.real_backend import RealGameBackend
 from ur_tictactoe.desktop.diagnostics import DiagnosticSnapshot
+from ur_tictactoe.desktop.settings import AppConfig
 from ur_tictactoe.game import (
     ACTIVE,
     HARD,
@@ -20,15 +20,6 @@ from ur_tictactoe.game import (
 )
 from ur_tictactoe.runtime import PhysicalGameRuntime, RuntimeState
 from ur_tictactoe.vision.board_observer import CellState, PhysicalBoardState
-
-
-@dataclass(frozen=True)
-class AppConfig:
-    robot_host: str = "192.168.1.10"
-    robot_port: int = 502
-    update_interval_ms: int = 100
-    vision_config_path: Path = Path("config/vision.local.yaml")
-    aruco_profile: str = "robust"
 
 
 @dataclass(frozen=True)

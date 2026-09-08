@@ -33,8 +33,8 @@ class RealGameBackend:
             vision_config.aruco.dictionary, aruco_profile
         )
         self.observer = observer or BoardObserver(vision_config.observer)
-        self.modbus_client = modbus_client or ModbusClient(
-            robot_host, port=robot_port
+        self.modbus_client = modbus_client or (
+            ModbusClient(robot_host, port=robot_port) if robot_host else None
         )
         self.camera_status = "NO CONECTADA"
         self.robot_status = "NO CONECTADO"
@@ -43,6 +43,7 @@ class RealGameBackend:
         self._camera_open = False
         self._robot_open = False
         self._closed = False
+        self._robot_configured = bool(robot_host) or modbus_client is not None
         self.aruco_profile = aruco_profile
         self._preview = None
         self._visible_ids: tuple[int, ...] = ()
@@ -77,7 +78,9 @@ class RealGameBackend:
                 self.camera_status = "ERROR"
                 self.last_error = f"CAMERA_OPEN_ERROR: {exc}"
 
-        if not self._robot_open:
+        if not self._robot_configured:
+            self.robot_status = "NO CONFIGURADO"
+        elif not self._robot_open:
             try:
                 self.modbus_client.connect()
                 self._robot_open = True
@@ -124,7 +127,8 @@ class RealGameBackend:
         self._camera_open = False
         self.camera_status = "NO CONECTADA"
         try:
-            self.modbus_client.close()
+            if self.modbus_client is not None:
+                self.modbus_client.close()
         except Exception as exc:
             errors.append(f"MODBUS_CLOSE_ERROR: {exc}")
         self._robot_open = False

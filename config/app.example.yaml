@@ -1,6 +1,10 @@
 robot:
-  host: 192.168.1.10
+  host: ""  # Configurar la dirección del UR antes de usar hardware.
   port: 502
 
 ui:
   update_interval_ms: 100
+
+aruco_profile: robust
+# Opcional: ruta relativa a este YAML, o absoluta.
+# vision_config: vision.yaml

@@ -8,8 +8,22 @@ import sys
 import pytest
 from ur_tictactoe.desktop.application import GameApplication
 from ur_tictactoe.desktop.tk_app import DesktopWindow
+from ur_tictactoe.desktop import theme
 from ur_tictactoe.game import PICARO
 from test_real_backend import FakeCamera, FakeModbus, make_backend
+
+
+def _check_header(window):
+    window.root.update()
+    assert window._logo_image.cget("size") == (220, 110)
+    assert window._logo_image.cget("light_image").size == (632, 316)
+    assert window.header.winfo_ismapped()
+    assert window.logo_label.winfo_ismapped()
+    assert window.title_label.winfo_x() >= window.logo_label.winfo_x() + window.logo_label.winfo_width()
+    assert window.mode_badge.winfo_x() >= window.title_label.winfo_x() + window.title_label.winfo_width()
+    assert window.mode_badge.winfo_x() + window.mode_badge.winfo_width() <= window.header.winfo_width()
+    assert window.academic_label.winfo_y() + window.academic_label.winfo_height() <= window.header.winfo_height()
+    assert window.header.winfo_y() + window.header.winfo_height() <= window.tabs.winfo_y()
 
 
 def _check_simulation() -> None:
@@ -20,10 +34,14 @@ def _check_simulation() -> None:
     try:
         window.root.update()
         assert window._logo_image is not None
+        _check_header(window)
+        assert window.academic_label.cget("text") == "Proyecto académico\nPontificia Universidad Javeriana"
+        assert window.author_footer.cget("text") == "By: Juan Esteban León Saiz"
         before = app.snapshot()
         window.tabs.set("CÁMARA / DIAGNÓSTICO")
         window._render_diagnostics()
         window.root.update()
+        _check_header(window)
         assert window.camera_preview.cget("text") == "CÁMARA NO DISPONIBLE"
         assert app.snapshot() == before
         window.tabs.set("JUEGO")
@@ -38,6 +56,26 @@ def _check_simulation() -> None:
         window._toggle_human_picaro()
         assert not window._picaro_selecting
         assert app.snapshot().human_picaro_available
+        dimensions = [(b.winfo_width(), b.winfo_height()) for b in window.cell_buttons]
+        assert len(set(dimensions)) <= 4  # grid rounding may differ by one pixel
+        assert max(w for w, h in dimensions) - min(w for w, h in dimensions) <= 1
+        assert max(h for w, h in dimensions) - min(h for w, h in dimensions) <= 1
+        assert app.play_human_cell(5)
+        for _ in range(4):
+            app.update()
+        window._render()
+        window.root.update()
+        for i, value in enumerate(app.snapshot().board):
+            if value:
+                assert window.cell_buttons[i].cget("fg_color") == (theme.X_COLOR if value == "X" else theme.O_COLOR)
+        assert dimensions == [(b.winfo_width(), b.winfo_height()) for b in window.cell_buttons]
+        for geometry in ("800x550", "900x620"):
+            window.root.geometry(geometry)
+            _check_header(window)
+            window.tabs.set("CÁMARA / DIAGNÓSTICO")
+            _check_header(window)
+            window.tabs.set("JUEGO")
+        assert window.author_footer.winfo_y() + window.author_footer.winfo_height() <= window.root.winfo_height()
         assert not errors
     finally:
         window.root.destroy()
@@ -56,6 +94,7 @@ def _check_real() -> None:
         window.tabs.set("CÁMARA / DIAGNÓSTICO")
         window._render_diagnostics()
         window.root.update()
+        _check_header(window)
         assert window.camera_preview.cget("text") == "CÁMARA NO DISPONIBLE"
         assert not app.new_game(PICARO, True)
         assert not app.play_human_picaro(1)

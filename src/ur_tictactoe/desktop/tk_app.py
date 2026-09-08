@@ -5,9 +5,11 @@ from __future__ import annotations
 import tkinter as tk
 import customtkinter as ctk
 from PIL import Image
+from pathlib import Path
 
 from ur_tictactoe.desktop.application import GameApplication
 from ur_tictactoe.desktop.assets import optional_asset
+from ur_tictactoe.desktop.settings import load_app_config
 from ur_tictactoe.desktop import theme
 from ur_tictactoe.game import (
     DRAW,
@@ -46,10 +48,15 @@ class DesktopWindow:
         self.root.title("Robot Triqui")
         self.root.geometry(self._centered_geometry(900, 620))
         self.root.minsize(800, 550)
-        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_rowconfigure(1, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
         self.tabs = ctk.CTkTabview(self.root)
-        self.tabs.grid(row=0, column=0, sticky="nsew")
+        self.tabs.grid(row=1, column=0, sticky="nsew")
+        self.author_footer = ctk.CTkLabel(
+            self.root, text="By: Juan Esteban León Saiz", text_color=theme.TEXT_SECONDARY,
+            font=ctk.CTkFont("Segoe UI", 10), height=20,
+        )
+        self.author_footer.grid(row=2, column=0, sticky="e", padx=20)
         game_tab = self.tabs.add("JUEGO")
         game_tab.grid_rowconfigure(0, weight=1)
         game_tab.grid_columnconfigure(0, weight=1)
@@ -61,8 +68,9 @@ class DesktopWindow:
         self._preview_source = None
         self._preview_image = None
         self.container = ctk.CTkFrame(game_tab, fg_color="transparent")
-        self.container.grid(row=0, column=0, sticky="nsew", padx=34, pady=24)
+        self.container.grid(row=0, column=0, sticky="nsew", padx=34, pady=(8, 16))
         self._logo_image: ctk.CTkImage | None = None
+        self._header()
         self.cell_buttons: list[ctk.CTkButton] = []
         self._picaro_selecting = False
         self._show_home()
@@ -82,39 +90,49 @@ class DesktopWindow:
         self.cell_buttons = []
 
     def _header(self) -> None:
-        header = ctk.CTkFrame(self.container, fg_color="transparent")
-        header.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 18))
+        header = ctk.CTkFrame(self.root, fg_color="transparent")
+        self.header = header
+        header.grid(row=0, column=0, sticky="ew", padx=34, pady=(12, 0))
         header.grid_columnconfigure(1, weight=1)
         logo = optional_asset("assets/javeriana_logo.png")
         if logo:
             with Image.open(logo) as source:
                 image = source.copy()
-            image.thumbnail((130, 130))
-            self._logo_image = ctk.CTkImage(image, size=image.size)
-            ctk.CTkLabel(header, text="", image=self._logo_image).grid(
-                row=0, column=0, rowspan=2, padx=(0, 14)
+            # Keep full-resolution pixels for high-DPI displays; scale uniformly.
+            size = (220, round(image.height * 220 / image.width))
+            self._logo_image = ctk.CTkImage(image, size=size)
+            self.logo_label = ctk.CTkLabel(header, text="", image=self._logo_image)
+            self.logo_label.grid(
+                row=0, column=0, rowspan=3, padx=(0, 14)
             )
-        ctk.CTkLabel(
+        self.title_label = ctk.CTkLabel(
             header, text="ROBOT TRIQUI", font=ctk.CTkFont("Segoe UI", 26, "bold"),
             text_color=theme.PRIMARY,
-        ).grid(row=0, column=1, sticky="sw")
+        )
+        self.title_label.grid(row=0, column=1, sticky="sw")
         ctk.CTkLabel(
             header, text="Sistema autónomo de juego", font=ctk.CTkFont("Segoe UI", 14),
             text_color=theme.TEXT_SECONDARY,
         ).grid(row=1, column=1, sticky="nw")
+        self.academic_label = ctk.CTkLabel(
+            header, text="Proyecto académico\nPontificia Universidad Javeriana",
+            justify="left", text_color=theme.TEXT_SECONDARY,
+            font=ctk.CTkFont("Segoe UI", 12),
+        )
+        self.academic_label.grid(row=2, column=1, sticky="nw", pady=(6, 0))
         simulated = self.application.simulation
-        ctk.CTkLabel(
+        self.mode_badge = ctk.CTkLabel(
             header, text=f"  {'SIMULACIÓN' if simulated else 'SISTEMA REAL'}  ", height=28,
             corner_radius=14, fg_color="#E6EFF8" if simulated else "#E8F3EC",
             text_color=theme.PRIMARY if simulated else theme.SUCCESS,
             font=ctk.CTkFont("Segoe UI", 11, "bold"),
-        ).grid(row=0, column=2, rowspan=2, sticky="e")
+        )
+        self.mode_badge.grid(row=0, column=2, rowspan=2, sticky="e")
 
     def _show_home(self) -> None:
         self._clear()
         self.container.grid_rowconfigure(1, weight=1)
         self.container.grid_columnconfigure((0, 1), weight=1, uniform="cards")
-        self._header()
         self.difficulty = tk.StringVar(value=HARD)
         self.human_first = tk.BooleanVar(value=False)
 
@@ -177,7 +195,6 @@ class DesktopWindow:
         self.container.grid_rowconfigure(1, weight=1)
         self.container.grid_columnconfigure(0, weight=3, uniform="game")
         self.container.grid_columnconfigure(1, weight=2, uniform="game")
-        self._header()
         board = ctk.CTkFrame(
             self.container, fg_color=theme.CARD_BACKGROUND, corner_radius=12,
             border_color=theme.BORDER, border_width=1,
@@ -403,8 +420,8 @@ class DesktopWindow:
         return theme.SUCCESS
 
 
-def run_desktop_app(simulation: bool) -> int:
-    application = GameApplication(simulation=simulation)
+def run_desktop_app(simulation: bool, config_path: Path | None = None) -> int:
+    application = GameApplication(simulation=simulation, config=load_app_config(config_path))
     application.open()
     try:
         DesktopWindow(application).run()

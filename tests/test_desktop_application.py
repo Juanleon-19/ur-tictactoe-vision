@@ -32,6 +32,33 @@ def test_supported_difficulty_is_preserved(difficulty: str) -> None:
     assert app.snapshot().difficulty == difficulty
 
 
+@pytest.mark.parametrize("moves, expected", [
+    ((3, 7, 9, 8), "human_wins"),
+    ((1, 2, 4), "robot_wins"),
+])
+def test_intermediate_desktop_reproducible_outcomes(moves, expected):
+    traces = []
+    for _ in range(2):
+        app = GameApplication(simulation=True)
+        try:
+            assert app.new_game(INTERMEDIATE, True, seed=42)
+            human_moves, trace = iter(moves), []
+            for _ in range(60):
+                snapshot = app.snapshot()
+                trace.append(snapshot)
+                if snapshot.runtime_state == RuntimeState.GAME_OVER:
+                    break
+                if snapshot.runtime_state == RuntimeState.WAITING_HUMAN:
+                    assert app.play_human_cell(next(human_moves))
+                else:
+                    app.update()
+            assert app.snapshot().result == expected
+            traces.append(trace)
+        finally:
+            app.close()
+    assert traces[0] == traces[1]
+
+
 def test_valid_simulated_human_click_updates_snapshot_board() -> None:
     app = GameApplication(simulation=True)
     app.new_game(HARD, True)

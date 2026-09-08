@@ -125,6 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
     robot_parser.add_argument("--timeout", type=positive_seconds, default=30.0,
                               help="Maximum seconds per status wait; timeout does not stop the robot")
     app_parser = subparsers.add_parser("app", help="Open the Windows desktop application")
+    app_parser.add_argument("--config", type=Path, help="External application YAML")
     app_parser.add_argument(
         "--simulate", action="store_true", help="Run without camera, robot, or sockets"
     )
@@ -311,7 +312,7 @@ def main() -> int:
         return run_robot_test(args)
 
     if args.subcommand == "app":
-        return run_desktop_app(args.simulate)
+        return run_desktop_app(args.simulate, args.config)
 
     return 0
 

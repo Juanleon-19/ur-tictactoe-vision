@@ -117,10 +117,57 @@ variables TCL_LIBRARY/TK_LIBRARY globales. Ejecutar `python -m tkinter` y
 widgets Tk reales y necesita una sesión gráfica; no requiere cámara ni robot.
 Los temporales locales `.gui-test-temp/` y `.gui-test-cache/` están ignorados.
 
-## Distribución futura
+## Branding académico
 
-Después de validar el modo real, PyInstaller podrá producir el ejecutable Windows
-y posteriormente Inno Setup el instalador `Setup.exe`. Deberán incluirse
-`assets/javeriana_logo.png` y los archivos de datos de CustomTkinter. La guía
-oficial de CustomTkinter recomienda actualmente una distribución `--onedir` en
-Windows. Ninguna herramienta de packaging se instala o configura en esta fase.
+El encabezado conserva ROBOT TRIQUI y Sistema autónomo de juego, con el logo
+oficial existente a 220×110 px, conservando la proporción 2:1 y el asset original
+de 632×316 px para pantallas con escalado. El header compartido permanece visible
+en inicio, partida y Cámara / Diagnóstico, sin duplicar el logo.
+Añade Proyecto académico / Pontificia Universidad Javeriana, sin afirmar respaldo
+institucional. El pie global muestra exactamente `By: Juan Esteban León Saiz`.
+
+## Distribución Windows onedir
+
+Desde PowerShell, con Python 3.12 y Tcl/Tk funcional:
+
+```powershell
+.venv\Scripts\Activate.ps1
+python -m pip install -r requirements-build.txt
+scripts\build_windows.ps1
+dist\RobotTriqui\RobotTriqui.exe --simulate
+dist\RobotTriqui\RobotTriqui.exe
+```
+
+El script verifica Tcl/Tk, dependencias y la suite completa antes de limpiar
+únicamente los directorios generados de este producto y ejecutar PyInstaller.
+`requirements-build.txt` fija el entorno de construcción; `robot_triqui.spec`
+incluye logo, ejemplos YAML, CustomTkinter y dependencias de ejecución. Mantener
+la carpeta **RobotTriqui completa**, incluido `_internal`; no distribuir solo el EXE.
+No incluye tests, configuración local ni reportes. El build no ejecuta el robot.
+
+La configuración externa se busca en `config/app.yaml` junto al EXE, o mediante
+`--config ruta/al/app.local.yaml`. Copiar allí los ejemplos cuando se configure
+hardware. `vision_config` se resuelve respecto al YAML de aplicación; si se omite,
+se usa `config/vision.yaml` junto al EXE cuando existe, o el ejemplo empaquetado.
+Sin configuración, el host es vacío: muestra robot NO CONFIGURADO y no conecta.
+El perfil predeterminado es robust. En simulación no se abre cámara ni Modbus.
+
+Acceptance automatizada: Experto con ambos inicios, Intermedio reproducible con
+derrota de ambos jugadores, Pícaro independiente de humano/robot y reinicio;
+widgets reales para logo, textos, colores, geometría 3×3, cancelación y diagnósticos
+con fallos de hardware simulados. Las pruebas no usan cámara ni sockets reales.
+
+El build onedir se completó. `scripts/smoke_windows.ps1` comprueba ambos modos
+desde un directorio de trabajo vacío: ventana Robot Triqui que responde durante
+10 segundos, cierre controlado con código 0, logs sin traceback y hash del logo
+empaquetado idéntico al original. No permite configuración externa de robot en
+la distribución de smoke. Las evidencias quedan en `reports/smoke_*`, ignorado.
+
+Resultado: **SMOKE DE PROCESO = PASS** en simulación y real.
+**SMOKE VISUAL = NOT CONFIRMED**: no se realizó inspección visual del EXE con
+Computer Use. Los widgets y el resolver frozen sí tienen acceptance automatizada.
+Esta limitación externa no bloquea el cierre de software autorizado. Video/detección
+con cámara física y aceptación física del sistema siguen pendientes.
+
+El harness se distribuye mediante el [entrypoint Python independiente](commissioning.md).
+No se genera instalador ni un segundo EXE de commissioning en este cambio.
