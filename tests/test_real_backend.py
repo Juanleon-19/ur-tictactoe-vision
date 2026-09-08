@@ -363,3 +363,107 @@ def test_real_backend_accepts_glare_profile_without_opening_hardware():
     )
     assert backend.detector.profile == "robust_glare"
     assert backend.diagnostic_snapshot().profile == "robust_glare"
+
+
+@pytest.mark.parametrize("profile", ["default", "robust", "robust_glare"])
+def test_hot_profile_replaces_vision_only_and_reacquires(profile, monkeypatch):
+    import ur_tictactoe.vision.board_observer as observer_module
+
+    camera = FakeCamera(None)
+    camera.frame = np.zeros((48, 64, 3), dtype=np.uint8)
+    backend = make_backend(camera=camera, detector=FakeDetector(tuple(range(10, 19))),
+                           observer=RecordingObserver(physical(5)))
+    app = GameApplication(False, real_backend=backend)
+    assert app.open()
+    app.update()
+    old_detector, old_observer = backend.detector, backend.observer
+    modbus = backend.modbus_client
+    assert backend.diagnostic_snapshot().visible_ids
+    assert app.set_aruco_profile(profile)
+    assert backend.detector is not old_detector
+    assert backend.detector.profile == profile
+    assert isinstance(backend.observer, BoardObserver)
+    assert backend.observer is not old_observer
+    assert backend.observer.config == vision_config().observer
+    assert not backend.observer.state.ready
+    assert backend.last_observation is None
+    snapshot = backend.diagnostic_snapshot()
+    assert snapshot.profile == profile
+    assert snapshot.visible_ids == () and snapshot.frame is None
+    assert snapshot.cells == (CellState.UNCERTAIN,) * 9
+    assert app.snapshot().board_status == "ESPERANDO TABLERO"
+    assert app.config.aruco_profile == "robust"
+    assert backend.camera is camera and backend.modbus_client is modbus
+    assert backend.is_open
+    assert camera.open_calls == modbus.connect_calls == 1
+    assert camera.close_calls == modbus.close_calls == 0
+    assert modbus.commands == []
+    # Subsequent ticks use the replacement detector and normal temporal observer.
+    monkeypatch.setattr(backend.detector, "detect", FakeDetector(tuple(range(10, 19))).detect)
+    clock = iter((0.0, 0.3, 0.6))
+    monkeypatch.setattr(observer_module.time, "monotonic", lambda: next(clock))
+    for _ in range(3):
+        app.update()
+    assert app.snapshot().board_status == "LISTO"
+    assert backend.diagnostic_snapshot().frame is not None
+    assert camera.open_calls == modbus.connect_calls == 1
+    app.close()
+
+
+def test_invalid_profile_preserves_backend_and_ui_safe_rejection():
+    backend = make_backend()
+    detector, observer = backend.detector, backend.observer
+    with pytest.raises(ValueError):
+        backend.set_aruco_profile("invalid")
+    app = GameApplication(False, real_backend=backend)
+    assert not app.set_aruco_profile("invalid")
+    assert app.profile_change_error == "Perfil de visión no válido."
+    assert backend.detector is detector and backend.observer is observer
+    assert backend.aruco_profile == "robust"
+
+
+@pytest.mark.parametrize("state", [RuntimeState.WAITING_HUMAN, RuntimeState.WAITING_ROBOT,
+                                  RuntimeState.ROBOT_BUSY, RuntimeState.VERIFYING_ROBOT,
+                                  RuntimeState.ERROR])
+def test_profile_change_blocked_during_real_game(state):
+    backend = make_backend(observer=RecordingObserver(physical()))
+    app = GameApplication(False, real_backend=backend)
+    app.open()
+    app.update()
+    assert app.new_game(HARD, True)
+    app.runtime.state = state
+    before = app.snapshot()
+    detector, observer = backend.detector, backend.observer
+    assert not app.set_aruco_profile("robust_glare")
+    assert app.profile_change_error == "No se puede cambiar el perfil durante una partida activa."
+    assert backend.detector is detector and backend.observer is observer
+    assert app.snapshot() == before
+    assert backend.modbus_client.commands == []
+    app.close()
+
+
+def test_profile_construction_failure_is_atomic_and_ui_safe(monkeypatch):
+    import ur_tictactoe.desktop.real_backend as module
+
+    backend = make_backend()
+    detector, observer = backend.detector, backend.observer
+    def fail(*args):
+        raise RuntimeError("detector unavailable")
+    monkeypatch.setattr(module, "ArucoDetector", fail)
+    app = GameApplication(False, real_backend=backend)
+    assert not app.set_aruco_profile("robust_glare")
+    assert app.profile_change_error == "No se pudo aplicar el perfil de visión."
+    assert backend.detector is detector and backend.observer is observer
+    assert backend.aruco_profile == "robust"
+
+
+def test_simulation_profile_is_session_only_without_detector(monkeypatch):
+    import ur_tictactoe.desktop.real_backend as module
+    def fail(*args):
+        raise AssertionError("Simulation must not construct a detector")
+    monkeypatch.setattr(module, "ArucoDetector", fail)
+    app = GameApplication(True)
+    assert app.set_aruco_profile("robust_glare")
+    assert app.diagnostic_snapshot().profile == "robust_glare"
+    assert app.config.aruco_profile == "robust"
+    assert GameApplication(True, config=app.config).diagnostic_snapshot().profile == "robust"

@@ -11,6 +11,7 @@ from ur_tictactoe.desktop.application import GameApplication
 from ur_tictactoe.desktop.assets import optional_asset
 from ur_tictactoe.desktop.settings import load_app_config
 from ur_tictactoe.desktop import theme
+from ur_tictactoe.config import CELL_IDS
 from ur_tictactoe.game import (
     DRAW,
     HARD,
@@ -31,6 +32,8 @@ STATE_LABELS = {
     RuntimeState.ERROR: "Error",
 }
 RESULT_LABELS = {ROBOT_WINS: "GANÓ EL ROBOT", HUMAN_WINS: "GANÓ EL HUMANO", DRAW: "EMPATE"}
+VISION_PROFILES = {"Robusto": "robust", "Reflejos": "robust_glare", "Estándar": "default"}
+PROFILE_LABELS = {profile: label for label, profile in VISION_PROFILES.items()}
 
 
 class CellButton(ctk.CTkButton):
@@ -61,12 +64,40 @@ class DesktopWindow:
         game_tab.grid_rowconfigure(0, weight=1)
         game_tab.grid_columnconfigure(0, weight=1)
         diagnostic_tab = self.tabs.add("CÁMARA / DIAGNÓSTICO")
-        self.camera_preview = ctk.CTkLabel(diagnostic_tab, text="CÁMARA NO DISPONIBLE")
-        self.camera_preview.pack(fill="both", expand=True, padx=12, pady=12)
+        vision_controls = ctk.CTkFrame(diagnostic_tab, fg_color="transparent")
+        vision_controls.pack(fill="x", padx=12, pady=(6, 0))
+        ctk.CTkLabel(vision_controls, text="Perfil de visión:").pack(side="left", padx=(0, 8))
+        self.vision_profile = tk.StringVar(
+            value=PROFILE_LABELS[application.diagnostic_snapshot().profile]
+        )
+        self.profile_selector = ctk.CTkOptionMenu(
+            vision_controls, values=list(VISION_PROFILES), variable=self.vision_profile,
+            width=115,
+        )
+        self.profile_selector.pack(side="left")
+        self.apply_profile_button = ctk.CTkButton(
+            vision_controls, text="APLICAR PERFIL", command=self._apply_vision_profile,
+            width=130,
+        )
+        self.apply_profile_button.pack(side="left", padx=10)
+        self.active_profile = ctk.CTkLabel(
+            vision_controls, text=f"Perfil activo: {self.vision_profile.get()}",
+            text_color=theme.PRIMARY,
+        )
+        self.active_profile.pack(side="left")
+        self.profile_feedback = ctk.CTkLabel(
+            diagnostic_tab, text="Solo para esta sesión", text_color=theme.TEXT_SECONDARY,
+            height=20,
+        )
+        self.profile_feedback.pack(fill="x", padx=12)
+        self.camera_preview = ctk.CTkLabel(diagnostic_tab, text="CÁMARA NO DISPONIBLE", height=1)
         self.camera_details = ctk.CTkLabel(diagnostic_tab, text="", justify="left")
-        self.camera_details.pack(fill="x", padx=12, pady=12)
+        self.camera_details.pack(side="bottom", fill="x", padx=12, pady=6)
+        self.camera_preview.pack(fill="both", expand=True, padx=12, pady=6)
         self._preview_source = None
         self._preview_image = None
+        # CTkLabel image=None leaves the previous Tcl image attached.
+        self._empty_preview = ctk.CTkImage(Image.new("RGBA", (1, 1)), size=(1, 1))
         self.container = ctk.CTkFrame(game_tab, fg_color="transparent")
         self.container.grid(row=0, column=0, sticky="nsew", padx=34, pady=(8, 16))
         self._logo_image: ctk.CTkImage | None = None
@@ -329,23 +360,38 @@ class DesktopWindow:
             self._render()
         self.root.after(self.application.config.update_interval_ms, self._tick)
 
+    def _apply_vision_profile(self) -> None:
+        applied = self.application.set_aruco_profile(VISION_PROFILES[self.vision_profile.get()])
+        self.profile_feedback.configure(
+            text="Perfil aplicado · Solo para esta sesión" if applied
+            else self.application.profile_change_error,
+            text_color=theme.TEXT_SECONDARY if applied else theme.ERROR,
+        )
+        self._render_diagnostics()
+
     def _render_diagnostics(self) -> None:
         snapshot = self.application.diagnostic_snapshot()
+        self.active_profile.configure(text=f"Perfil activo: {PROFILE_LABELS[snapshot.profile]}")
         if snapshot.frame is None:
-            self.camera_preview.configure(image=None, text="CÁMARA NO DISPONIBLE")
+            self.camera_preview.configure(image=self._empty_preview, text="CÁMARA NO DISPONIBLE")
             self._preview_source = None
             self._preview_image = None
         elif snapshot.frame is not self._preview_source:
             preview = Image.fromarray(snapshot.frame)
-            preview.thumbnail((640, 360))
+            preview.thumbnail((
+                min(640, max(1, self.camera_preview.winfo_width())),
+                min(360, max(1, self.camera_preview.winfo_height())),
+            ))
             self._preview_image = ctk.CTkImage(preview, size=preview.size)
             self._preview_source = snapshot.frame
             self.camera_preview.configure(image=self._preview_image, text="")
         resolution = " × ".join(map(str, snapshot.resolution)) if snapshot.resolution else "—"
         cells = "   ".join(f"{cell}: {state.value}" for cell, state in enumerate(snapshot.cells, 1))
+        missing = sorted(set(CELL_IDS).difference(snapshot.visible_ids))
         self.camera_details.configure(
-            text=f"Perfil: {snapshot.profile.upper()} | Cámara: {snapshot.camera_status} | {resolution}\n"
-                 f"IDs visibles: {', '.join(map(str, snapshot.visible_ids)) or '—'}\n{cells}",
+            text=f"Cámara: {snapshot.camera_status} | {resolution}\n"
+                 f"IDs visibles ({len(snapshot.visible_ids)}/9): {', '.join(map(str, snapshot.visible_ids)) or '—'}\n"
+                 f"IDs faltantes: {', '.join(map(str, missing)) or '—'}\n{cells}",
             wraplength=760,
         )
 

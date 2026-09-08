@@ -7,10 +7,14 @@ import sys
 
 import pytest
 from ur_tictactoe.desktop.application import GameApplication
-from ur_tictactoe.desktop.tk_app import DesktopWindow
+from ur_tictactoe.desktop.tk_app import DesktopWindow, VISION_PROFILES
 from ur_tictactoe.desktop import theme
 from ur_tictactoe.game import PICARO
 from test_real_backend import FakeCamera, FakeModbus, make_backend
+
+
+def test_friendly_vision_profile_mapping():
+    assert VISION_PROFILES == {"Robusto": "robust", "Reflejos": "robust_glare", "Estándar": "default"}
 
 
 def _check_header(window):
@@ -44,6 +48,14 @@ def _check_simulation() -> None:
         _check_header(window)
         assert window.camera_preview.cget("text") == "CÁMARA NO DISPONIBLE"
         assert app.snapshot() == before
+        assert window.vision_profile.get() == "Robusto"
+        for label, profile in VISION_PROFILES.items():
+            window.vision_profile.set(label)
+            window.apply_profile_button.invoke()
+            assert app.diagnostic_snapshot().profile == profile
+            assert window.active_profile.cget("text") == f"Perfil activo: {label}"
+        assert "IDs visibles (0/9)" in window.camera_details.cget("text")
+        assert "IDs faltantes: 10, 11, 12, 13, 14, 15, 16, 17, 18" in window.camera_details.cget("text")
         window.tabs.set("JUEGO")
         assert app.new_game(PICARO, True, seed=7)
         window._show_game()
@@ -82,6 +94,55 @@ def _check_simulation() -> None:
         app.close()
 
 
+def _check_profile_live() -> None:
+    import numpy as np
+    from test_real_backend import RecordingObserver, physical
+    from ur_tictactoe.game import HARD
+
+    camera = FakeCamera(None)
+    camera.frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+    backend = make_backend(camera=camera, observer=RecordingObserver(physical()))
+    app = GameApplication(False, real_backend=backend)
+    app.open()
+    window = DesktopWindow(app)
+    errors = []
+    window.root.report_callback_exception = lambda *args: errors.append(args)
+    try:
+        window.tabs.set("CÁMARA / DIAGNÓSTICO")
+        window.root.update()
+        app.update()
+        window._render_diagnostics()
+        assert window._preview_image is not None
+        window.vision_profile.set("Reflejos")
+        window.apply_profile_button.invoke()
+        app.update()
+        window._render_diagnostics()
+        window.root.update()
+        assert window._preview_image is not None
+        assert window.active_profile.cget("text") == "Perfil activo: Reflejos"
+        assert camera.open_calls == backend.modbus_client.connect_calls == 1
+        assert camera.close_calls == backend.modbus_client.close_calls == 0
+        for geometry in ("800x550", "900x620"):
+            window.root.geometry(geometry)
+            window.root.update()
+            assert window.profile_selector.winfo_ismapped()
+            assert window.active_profile.winfo_ismapped()
+            assert window.camera_details.winfo_ismapped()
+            assert window.camera_preview.winfo_height() > 20
+            assert window.active_profile.winfo_x() + window.active_profile.winfo_width() <= window.active_profile.master.winfo_width()
+        backend.observer = RecordingObserver(physical())
+        app.update()
+        assert app.new_game(HARD, True)
+        window.vision_profile.set("Robusto")
+        window.apply_profile_button.invoke()
+        assert window.profile_feedback.cget("text") == "No se puede cambiar el perfil durante una partida activa."
+        assert window.active_profile.cget("text") == "Perfil activo: Reflejos"
+        assert not errors
+    finally:
+        window.root.destroy()
+        app.close()
+
+
 def _check_real() -> None:
     backend = make_backend(
         camera=FakeCamera(None, RuntimeError("camera absent")),
@@ -104,7 +165,7 @@ def _check_real() -> None:
     assert backend.camera.close_calls == backend.modbus_client.close_calls == 1
 
 
-@pytest.mark.parametrize("check", ["_check_simulation", "_check_real"])
+@pytest.mark.parametrize("check", ["_check_simulation", "_check_real", "_check_profile_live"])
 def test_desktop_process_acceptance(check) -> None:
     # CTk maintains process-global theme/scaling state. Each application launch
     # gets its own process, including the real-widget acceptance checks.

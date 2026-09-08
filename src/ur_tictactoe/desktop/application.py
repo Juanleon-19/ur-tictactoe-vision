@@ -19,6 +19,7 @@ from ur_tictactoe.game import (
     GameSession,
 )
 from ur_tictactoe.runtime import PhysicalGameRuntime, RuntimeState
+from ur_tictactoe.vision.aruco import ARUCO_PROFILES
 from ur_tictactoe.vision.board_observer import CellState, PhysicalBoardState
 
 
@@ -74,6 +75,8 @@ class GameApplication:
     ) -> None:
         self.simulation = simulation
         self.config = config or AppConfig()
+        self._session_profile = self.config.aruco_profile
+        self.profile_change_error: str | None = None
         self.session: GameSession | None = None
         self.runtime: PhysicalGameRuntime | None = None
         self._physical_occupied: set[int] = set()
@@ -93,6 +96,30 @@ class GameApplication:
                 )
             except Exception as exc:
                 self._last_error = f"CAMERA_CONFIG_ERROR: {exc}"
+
+    def set_aruco_profile(self, profile: str) -> bool:
+        """Session-only command, called on the same UI thread as update()."""
+        self.profile_change_error = None
+        if not self.simulation and self.runtime is not None and (
+            self.runtime.state != RuntimeState.GAME_OVER
+        ):
+            self.profile_change_error = "No se puede cambiar el perfil durante una partida activa."
+            return False
+        if profile not in ARUCO_PROFILES:
+            self.profile_change_error = "Perfil de visión no válido."
+            return False
+        if not self.simulation:
+            if self.real_backend is None:
+                self.profile_change_error = "Visión no disponible."
+                return False
+            try:
+                self.real_backend.set_aruco_profile(profile)
+            except Exception:
+                self.profile_change_error = "No se pudo aplicar el perfil de visión."
+                return False
+            self._last_observation = None
+        self._session_profile = profile
+        return True
 
     def open(self) -> bool:
         """Open real resources; simulation has no external lifecycle."""
@@ -228,7 +255,7 @@ class GameApplication:
 
     def diagnostic_snapshot(self) -> DiagnosticSnapshot:
         if self.simulation or self.real_backend is None:
-            return DiagnosticSnapshot()
+            return DiagnosticSnapshot(profile=self._session_profile)
         return self.real_backend.diagnostic_snapshot()
 
     def snapshot(self) -> ApplicationSnapshot:

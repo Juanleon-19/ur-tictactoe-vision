@@ -9,7 +9,7 @@ import numpy as np
 from ur_tictactoe.communication import ModbusClient
 from ur_tictactoe.config import CELL_IDS, VisionConfig
 from ur_tictactoe.desktop.diagnostics import DiagnosticSnapshot, diagnostic_frame
-from ur_tictactoe.vision.aruco import ArucoDetector
+from ur_tictactoe.vision.aruco import ARUCO_PROFILES, ArucoDetector
 from ur_tictactoe.vision.board_observer import BoardObserver, PhysicalBoardState
 from ur_tictactoe.vision.camera import Camera
 
@@ -28,6 +28,8 @@ class RealGameBackend:
         observer: object | None = None,
         modbus_client: object | None = None,
     ) -> None:
+        self._dictionary = vision_config.aruco.dictionary
+        self._observer_config = vision_config.observer
         self.camera = camera_factory(vision_config.camera)
         self.detector = detector or ArucoDetector(
             vision_config.aruco.dictionary, aruco_profile
@@ -47,6 +49,19 @@ class RealGameBackend:
         self.aruco_profile = aruco_profile
         self._preview = None
         self._visible_ids: tuple[int, ...] = ()
+
+    def set_aruco_profile(self, profile: str) -> None:
+        """Replace vision state between UI ticks without touching device resources."""
+        if profile not in ARUCO_PROFILES:
+            raise ValueError("Invalid ArUco profile")
+        detector = ArucoDetector(self._dictionary, profile)
+        observer = BoardObserver(self._observer_config)
+        self.detector = detector
+        self.observer = observer
+        self.aruco_profile = profile
+        self.last_observation = None
+        self._visible_ids = ()
+        self._preview = None
 
     def diagnostic_snapshot(self) -> DiagnosticSnapshot:
         state = self.last_observation
