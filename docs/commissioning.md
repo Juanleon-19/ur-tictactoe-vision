@@ -105,6 +105,36 @@ terminal, sin añadir previews entre cada adquisición. Los errores de la ventan
 se identifican como `failure_stage: preview`; errores de lectura/detección
 conservan `camera_read`/`aruco_detection`.
 
+## Comparar perfiles con reflejos
+
+Los perfiles disponibles son `default`, `robust` y `robust_glare`. El default
+operacional sigue siendo `robust`; no se cambia la configuración local al ensayar.
+Commissioning usa `AppConfig.aruco_profile` en C2–C5, reporte y preview. El override
+`--aruco-profile` afecta únicamente a la sesión y también se registra en el reporte.
+`RealGameBackend` sigue usando el perfil configurado para la GUI.
+
+`robust_glare` es experimental: ventanas adaptativas min=3, max=43, step=4;
+conserva SUBPIX y ArUco3 cuando existen. `robust` mantiene todos sus parámetros
+anteriores (ventanas 3..23, step=4). No se cambia adaptiveThreshConstant ni se
+relajan errorCorrectionRate, maxErroneousBitsInBorderRate o
+polygonalApproxAccuracyRate. No hay CLAHE ni otro preprocesamiento: ambos reciben
+el frame original. El rango mayor puede reducir FPS y no recupera información
+perdida por saturación especular; su beneficio físico todavía debe medirse.
+
+Con cámara, tablero e iluminación en la misma posición:
+
+```powershell
+python -m ur_tictactoe.commissioning --config config/app.local.yaml --steps C2 --aruco-profile robust --window 10 --text-report
+python -m ur_tictactoe.commissioning --config config/app.local.yaml --steps C2 --aruco-profile robust_glare --window 10 --text-report
+```
+
+Comparar `profile`, `frames`, `capture_elapsed_seconds`, `measured_fps`,
+`visible_ids`, `visibility_percent` y `id18_visibility_percent`. El criterio PASS
+sigue siendo cada ID observado al menos una vez; ≥70 % se evalúa manualmente.
+El preview muestra `Profile: ...` y `Click preview for focus`: hacer clic dentro
+del video antes de pulsar C/c o Q/q/Esc, no en PowerShell. El cierre con X queda
+registrado como cancelación y no recrea la ventana ni inicia la medición.
+
 ## Preparación rápida para el operador
 
 El launcher es solo un menú; no implementa ensayos ni responde YES. Desde el

@@ -2,10 +2,47 @@ from __future__ import annotations
 
 import cv2
 import numpy as np
+import pytest
 
-from ur_tictactoe.vision.aruco import ArucoDetector, build_detector_parameters
+from ur_tictactoe.vision.aruco import ARUCO_PROFILES, ArucoDetector, build_detector_parameters
 
 APPROVED_IDS = set(range(10, 19))
+
+
+def parameter_values(parameters):
+    return {name: getattr(parameters, name) for name in dir(parameters)
+            if not name.startswith("_") and not callable(getattr(parameters, name))}
+
+
+def test_robust_full_parameter_contract_is_unchanged_by_glare():
+    expected = cv2.aruco.DetectorParameters()
+    expected.adaptiveThreshWinSizeStep = 4
+    if hasattr(cv2.aruco, "CORNER_REFINE_SUBPIX"):
+        expected.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+    if hasattr(expected, "useAruco3Detection"):
+        expected.useAruco3Detection = True
+    robust = build_detector_parameters("robust")
+    glare = build_detector_parameters("robust_glare")
+    assert parameter_values(robust) == parameter_values(expected)
+    assert parameter_values(build_detector_parameters("robust")) == parameter_values(expected)
+    assert ARUCO_PROFILES == ("default", "robust", "robust_glare")
+    assert glare is not robust
+    assert (glare.adaptiveThreshWinSizeMin, glare.adaptiveThreshWinSizeMax,
+            glare.adaptiveThreshWinSizeStep) == (3, 43, 4)
+    assert {k for k, v in parameter_values(glare).items()
+            if v != parameter_values(robust)[k]} == {"adaptiveThreshWinSizeMax"}
+    glare.adaptiveThreshWinSizeMax = 99
+    assert robust.adaptiveThreshWinSizeMax == 23
+
+
+@pytest.mark.parametrize("profile", ARUCO_PROFILES)
+def test_profile_detects_marker_and_leaves_original_frame_unchanged(profile):
+    frame = np.full((300, 300), 255, dtype=np.uint8)
+    dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_5X5_50)
+    frame[50:250, 50:250] = cv2.aruco.generateImageMarker(dictionary, 18, 200)
+    original = frame.copy()
+    assert ArucoDetector("DICT_5X5_50", profile).detect(frame).ids == (18,)
+    np.testing.assert_array_equal(frame, original)
 
 
 def test_default_profile_preserves_opencv_defaults() -> None:

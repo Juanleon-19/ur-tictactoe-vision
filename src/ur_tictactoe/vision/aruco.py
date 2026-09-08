@@ -9,7 +9,7 @@ from ur_tictactoe.config import CELL_IDS
 
 TEST_BOARD_SIZE = (1920, 1080)
 TEST_BOARD_DICTIONARY = "DICT_5X5_50"
-ARUCO_PROFILES = ("default", "robust")
+ARUCO_PROFILES = ("default", "robust", "robust_glare")
 
 
 @dataclass(frozen=True)
@@ -27,13 +27,21 @@ def build_detector_parameters(profile: str = "default"):
         raise ValueError(f"Unknown ArUco profile: {profile}")
 
     parameters = cv2.aruco.DetectorParameters()
-    if profile == "robust":
+    if profile in ("robust", "robust_glare"):
         # Keep the default window range, but sample it more granularly.
         parameters.adaptiveThreshWinSizeStep = 4
         if hasattr(cv2.aruco, "CORNER_REFINE_SUBPIX"):
             parameters.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
         if hasattr(parameters, "useAruco3Detection"):
             parameters.useAruco3Detection = True
+    if profile == "robust_glare":
+        # Experimental: extend robust's local threshold windows (3..23 -> 3..43,
+        # step 4) for uneven lighting. Keep threshold constant, error correction,
+        # border tolerance and polygon approximation at OpenCV defaults.
+        # No preprocessing: both profiles receive the original frame unchanged.
+        parameters.adaptiveThreshWinSizeMin = 3
+        parameters.adaptiveThreshWinSizeMax = 43
+        parameters.adaptiveThreshWinSizeStep = 4
     return parameters
 
 

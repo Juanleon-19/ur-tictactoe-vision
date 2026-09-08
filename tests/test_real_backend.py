@@ -354,3 +354,12 @@ def test_real_backend_allows_diagnostic_default_profile() -> None:
         camera_factory=FakeCamera, modbus_client=FakeModbus(),
     )
     assert backend.detector.profile == "default"
+
+
+def test_real_backend_accepts_glare_profile_without_opening_hardware():
+    backend = RealGameBackend(
+        vision_config(), "test-host", aruco_profile="robust_glare",
+        camera_factory=FakeCamera, modbus_client=FakeModbus(),
+    )
+    assert backend.detector.profile == "robust_glare"
+    assert backend.diagnostic_snapshot().profile == "robust_glare"

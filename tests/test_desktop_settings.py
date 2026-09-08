@@ -6,6 +6,13 @@ from ur_tictactoe.desktop import settings
 from ur_tictactoe import desktop_entry
 
 
+def test_external_settings_accept_glare_without_changing_default(tmp_path):
+    path = tmp_path / "app.yaml"
+    path.write_text("aruco_profile: robust_glare\n")
+    assert settings.load_app_config(path).aruco_profile == "robust_glare"
+    assert settings.AppConfig().aruco_profile == "robust"
+
+
 def test_packaged_defaults_do_not_depend_on_local_config(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "application_directory", lambda: tmp_path)
     config = settings.load_app_config()

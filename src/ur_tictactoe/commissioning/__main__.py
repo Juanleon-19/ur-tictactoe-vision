@@ -1,11 +1,13 @@
 """Run with python -m ur_tictactoe.commissioning (src on PYTHONPATH)."""
 
 import argparse
+from dataclasses import replace
 import math
 from pathlib import Path
 
 from ur_tictactoe.config import load_vision_config
 from ur_tictactoe.desktop.settings import load_app_config
+from ur_tictactoe.vision.aruco import ARUCO_PROFILES
 from .report import Report, Result
 from .runner import Runner
 from .tests import STEPS
@@ -22,6 +24,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Robot Triqui Commissioning / HIL Acceptance Runner")
     parser.add_argument("--steps", nargs="+", choices=STEPS, default=list(STEPS)[:7])
     parser.add_argument("--config", type=Path)
+    parser.add_argument("--aruco-profile", choices=ARUCO_PROFILES, help="Session-only profile override")
     parser.add_argument("--window", type=positive, default=10.0)
     parser.add_argument("--timeout", type=positive, default=15.0)
     parser.add_argument("--done-hold", type=positive, default=1.0)
@@ -33,6 +36,8 @@ def main(argv=None):
     report = Report({"configuration_loaded": False})
     try:
         config = load_app_config(args.config)
+        if args.aruco_profile is not None:
+            config = replace(config, aruco_profile=args.aruco_profile)
         vision = load_vision_config(config.vision_config_path)
         runner = Runner(config, vision, allow_motion=args.allow_motion, window=args.window,
                         timeout=args.timeout, hold=args.done_hold, test_evidence=args.pytest_report)

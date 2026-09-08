@@ -1,6 +1,7 @@
 """Acceptance of the harness with no sockets, camera or robot."""
 
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -40,6 +41,12 @@ class Camera:
 
 class FakePreview:
     closed = False
+
+    def __init__(self, profile="robust"):
+        self.profile = profile
+
+    def poll_key(self):
+        return -1
 
     def __enter__(self):
         return self
@@ -169,7 +176,7 @@ def test_c2_preview_time_and_frames_are_excluded_and_camera_is_reused(make_runne
 
     window.show = show
     observer.update = update
-    r.preview_factory = lambda: window
+    r.preview_factory = lambda **kwargs: window
     r.observer_factory = lambda _: observer
     result = r.run(["C2"]).results[0]
     assert result.status == "PASS"
@@ -190,7 +197,7 @@ def test_c2_preview_cancel_prevents_measurement_and_next_step(make_runner, key):
     camera.read = lambda: reads.append(True) or object()
     window.show = lambda *args: key
     r.camera_factory = lambda _: camera
-    r.preview_factory = lambda: window
+    r.preview_factory = lambda **kwargs: window
     r.detector_factory = lambda *args: SimpleNamespace(detect=lambda _: detections.append(True) or object())
     r.observer_factory = lambda _: SimpleNamespace(update=lambda *args, **kwargs: pytest.fail("Observer used during preview"))
     results = r.run(["C2", "C3"]).results
@@ -530,3 +537,71 @@ def test_cli_configuration_failure_still_writes_report(tmp_path):
 def test_cli_rejects_unbounded_durations(value):
     with pytest.raises(SystemExit):
         cli.main(["--window", value])
+
+
+@pytest.mark.parametrize("profile", ["default", "robust", "robust_glare"])
+def test_commissioning_uses_selected_profile_for_detector_preview_and_report(make_runner, profile):
+    r = make_runner()
+    config = replace(r.app_config, aruco_profile=profile)
+    r = Runner(config, r.vision_config, clock=r.clock, sleep=r.sleep,
+               camera_factory=r.camera_factory, detector_factory=r.detector_factory,
+               preview_factory=FakePreview, window=0.1, emit=lambda _: None)
+    detector_profiles, preview_profiles = [], []
+    factory = r.detector_factory
+    def detector(dictionary, selected):
+        detector_profiles.append(selected)
+        return factory(dictionary, selected)
+    def preview(profile):
+        preview_profiles.append(profile)
+        return FakePreview(profile)
+    r.detector_factory, r.preview_factory = detector, preview
+    result = r.run(["C2"]).results[0]
+    assert result.status == "PASS"
+    assert detector_profiles == preview_profiles == [profile]
+    assert result.observed["profile"] == profile
+    assert r.report.configuration["aruco_profile"] == profile
+
+
+@pytest.mark.parametrize("override, expected", [([], "default"), (["--aruco-profile", "robust_glare"], "robust_glare")])
+def test_cli_profile_override_is_session_only(monkeypatch, tmp_path, override, expected):
+    from ur_tictactoe.commissioning.report import Report, Result
+    config = tmp_path / "app.yaml"
+    content = "aruco_profile: default\n"
+    config.write_text(content)
+    selected = []
+    class FakeRunner:
+        def __init__(self, app_config, vision_config, **kwargs):
+            selected.append(app_config.aruco_profile)
+        def run(self, steps):
+            report = Report({"aruco_profile": selected[-1]})
+            report.results.append(Result("C2", "PASS"))
+            return report
+    monkeypatch.setattr(cli, "Runner", FakeRunner)
+    assert cli.main(["--config", str(config), "--steps", "C2", "--reports-dir", str(tmp_path), *override]) == 0
+    assert selected == [expected]
+    assert config.read_text() == content
+
+
+def test_x_during_detection_cancels_runner_without_measurement(monkeypatch, make_runner):
+    from ur_tictactoe.commissioning import preview
+    alive, events, reads = [True], [], []
+    monkeypatch.setattr(preview.cv2, "namedWindow", lambda *args: events.append("open"))
+    monkeypatch.setattr(preview.cv2, "getWindowProperty", lambda *args: 1 if alive[0] else -1)
+    monkeypatch.setattr(preview.cv2, "waitKey", lambda _: -1)
+    monkeypatch.setattr(preview.cv2, "imshow", lambda *args: pytest.fail("Closed window must not be recreated"))
+    monkeypatch.setattr(preview.cv2, "destroyWindow", lambda *args: events.append("destroy"))
+    r = make_runner(preview_factory=preview.VisionPreview)
+    camera = Camera(None)
+    camera.read = lambda: reads.append(True) or object()
+    r.camera_factory = lambda _: camera
+    def detect(frame):
+        alive[0] = False
+        return object()
+    r.detector_factory = lambda *args: SimpleNamespace(detect=detect)
+    r.observer_factory = lambda _: SimpleNamespace(update=lambda *args, **kwargs: pytest.fail("Measurement started after X"))
+    results = r.run(["C2", "C3"]).results
+    assert [x.status for x in results] == ["SKIPPED", "SKIPPED"]
+    assert events == ["open"]
+    assert reads == [True]
+    assert camera.closed
+    assert "frames" not in results[0].observed

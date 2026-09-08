@@ -46,7 +46,7 @@ class Runner:
         self.report = Report({
             "camera": asdict(vision_config.camera),
             "aruco_dictionary": vision_config.aruco.dictionary,
-            "cell_ids": list(CELL_IDS), "aruco_profile": "robust",
+            "cell_ids": list(CELL_IDS), "aruco_profile": app_config.aruco_profile,
             "observer": asdict(vision_config.observer),
             "robot_host": app_config.robot_host, "robot_port": app_config.robot_port,
             "allow_motion": allow_motion, "window_seconds": window,
@@ -157,9 +157,16 @@ class Runner:
         self.emit("Posicione cámara y tablero. Presione C para confirmar y comenzar la medición. Q/Esc cancela.")
         started, frames = self.clock(), 0
         with self.stage("preview"):
-            with self.preview_factory() as window:
+            with self.preview_factory(profile=self.app_config.aruco_profile) as window:
+                key = window.poll_key()
                 while True:
                     self.check_abort()
+                    if key in (27, ord("q"), ord("Q")):
+                        self.aborted = True
+                        raise Aborted()
+                    if key in (ord("c"), ord("C")):
+                        self.current_comments.append("Preview C2 confirmado por el operador con C")
+                        return
                     with self.stage("camera_read"):
                         frame = camera.read()
                     with self.stage("aruco_detection"):
@@ -167,19 +174,13 @@ class Runner:
                     frames += 1
                     elapsed = self.clock() - started
                     key = window.show(frame, detection, frames / elapsed if elapsed > 0 else 0.0)
-                    if key in (27, ord("q"), ord("Q")):
-                        self.aborted = True
-                        raise Aborted()
-                    if key in (ord("c"), ord("C")):
-                        self.current_comments.append("Preview C2 confirmado por el operador con C")
-                        return
 
     def sample(self, *, observer=None, seconds=None, preview=False):
         self.check_abort()
         with self.stage("observer"):
             observer = observer or self.observer_factory(self.vision_config.observer)
         with self.stage("aruco_detection"):
-            detector = self.detector_factory(self.vision_config.aruco.dictionary, "robust")
+            detector = self.detector_factory(self.vision_config.aruco.dictionary, self.app_config.aruco_profile)
         counts = dict.fromkeys(CELL_IDS, 0)
         frames = 0
         with self.opened_camera() as (camera, settings):
@@ -207,7 +208,7 @@ class Runner:
                 "resolution": [settings["width"], settings["height"]],
                 "configured_fps": self.vision_config.camera.fps,
                 "camera_fps": settings["fps"], "measured_fps": frames / elapsed,
-                "profile": "robust", "frames": frames,
+                "profile": self.app_config.aruco_profile, "frames": frames,
                 "capture_elapsed_seconds": elapsed,
                 "visible_ids": [marker for marker, count in counts.items() if count],
                 "visibility_percent": {str(k): v * 100 / frames for k, v in counts.items()},
