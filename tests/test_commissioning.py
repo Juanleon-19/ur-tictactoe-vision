@@ -38,6 +38,19 @@ class Camera:
         self.closed = True
 
 
+class FakePreview:
+    closed = False
+
+    def __enter__(self):
+        return self
+
+    def show(self, frame, detection, fps):
+        return ord("c")
+
+    def __exit__(self, *args):
+        self.closed = True
+
+
 class Robot:
     def __init__(self):
         self.writes = []
@@ -102,6 +115,7 @@ def make_runner(tmp_path):
                 id_set=set() if clock() < occlusion_until[0] else visible)),
             modbus_factory=lambda *args, **kwargs: robot,
             test_evidence=evidence, window=3.0, timeout=0.2, hold=0.05,
+            preview_factory=FakePreview,
         )
         kwargs.update(options)
         runner = Runner(AppConfig(robot_host="robot.invalid"), load_vision_config(default_vision_path()), **kwargs)
@@ -118,6 +132,119 @@ def test_read_only_steps_use_fakes_without_writes(make_runner, step):
     assert not r.fake_robot.writes
     assert all(c.closed for c in r.fake_cameras)
     assert r.report.configuration["cell_ids"] == list(range(10, 19))
+
+
+def test_c2_slow_camera_open_does_not_consume_capture_window(make_runner):
+    r = make_runner(window=1)
+    camera = Camera(None)
+    camera.open = lambda: r.sleep(60)
+    r.camera_factory = lambda _: camera
+    result = r.run(["C2"]).results[0]
+    assert result.status == "PASS", result
+    assert result.duration_seconds >= 61
+    assert 1 <= result.observed["capture_elapsed_seconds"] < 1.02
+    assert result.observed["frames"] >= 100
+    assert result.observed["visible_ids"] == list(range(10, 19))
+    assert result.observed["id18_visibility_percent"] == 100
+    assert camera.closed
+
+
+def test_c2_preview_time_and_frames_are_excluded_and_camera_is_reused(make_runner):
+    r = make_runner(window=1)
+    updates = []
+    observer = r.observer_factory(r.vision_config.observer)
+    original_update = observer.update
+    window = FakePreview()
+    keys = iter((-1, ord("C")))
+
+    def show(*args):
+        assert not updates
+        r.sleep(5)
+        return next(keys)
+
+    def update(*args, **kwargs):
+        assert window.closed
+        updates.append(args)
+        return original_update(*args, **kwargs)
+
+    window.show = show
+    observer.update = update
+    r.preview_factory = lambda: window
+    r.observer_factory = lambda _: observer
+    result = r.run(["C2"]).results[0]
+    assert result.status == "PASS"
+    assert len(r.fake_cameras) == 1
+    assert r.fake_cameras[0].closed
+    assert 11 <= result.duration_seconds < 11.02
+    assert 1 <= result.observed["capture_elapsed_seconds"] < 1.02
+    assert result.observed["frames"] == len(updates)
+    assert result.observed["measured_fps"] == pytest.approx(
+        len(updates) / result.observed["capture_elapsed_seconds"])
+
+
+@pytest.mark.parametrize("key", [ord("q"), ord("Q"), 27])
+def test_c2_preview_cancel_prevents_measurement_and_next_step(make_runner, key):
+    r = make_runner()
+    reads, detections = [], []
+    camera, window = Camera(None), FakePreview()
+    camera.read = lambda: reads.append(True) or object()
+    window.show = lambda *args: key
+    r.camera_factory = lambda _: camera
+    r.preview_factory = lambda: window
+    r.detector_factory = lambda *args: SimpleNamespace(detect=lambda _: detections.append(True) or object())
+    r.observer_factory = lambda _: SimpleNamespace(update=lambda *args, **kwargs: pytest.fail("Observer used during preview"))
+    results = r.run(["C2", "C3"]).results
+    assert [result.status for result in results] == ["SKIPPED", "SKIPPED"]
+    assert len(reads) == len(detections) == 1
+    assert "frames" not in results[0].observed
+    assert window.closed and camera.closed
+
+
+def test_c2_preview_visibility_does_not_make_measurement_pass(make_runner):
+    r = make_runner(window=1)
+    detections = []
+
+    def detect(frame):
+        detections.append(True)
+        return SimpleNamespace(id_set=set(range(10, 19 if len(detections) == 1 else 18)))
+
+    r.detector_factory = lambda *args: SimpleNamespace(detect=detect)
+    result = r.run(["C2"]).results[0]
+    assert result.status == "FAIL"
+    assert result.observed["id18_visibility_percent"] == 0
+    assert 18 not in result.observed["visible_ids"]
+    assert len(detections) == result.observed["frames"] + 1
+
+
+@pytest.mark.parametrize("step", ["C2", "C3", "C4", "C5"])
+@pytest.mark.parametrize("stage", ["camera_open", "camera_settings", "camera_read"])
+def test_vision_steps_preserve_safe_camera_failure_stage(make_runner, step, stage):
+    class BrokenCamera:
+        closed = False
+
+        def open(self):
+            if stage == "camera_open":
+                raise RuntimeError("private path")
+
+        @property
+        def effective_settings(self):
+            if stage == "camera_settings":
+                raise RuntimeError("private path")
+            return CameraSettings(1280, 720, 30)
+
+        def read(self):
+            raise RuntimeError("private path")
+
+        def close(self):
+            self.closed = True
+
+    camera = BrokenCamera()
+    r = make_runner(camera_factory=lambda _: camera)
+    result = r.run([step]).results[0]
+    assert result.status == "FAIL"
+    assert result.observed["failure_stage"] == stage
+    assert "private path" not in str(result)
+    assert camera.closed
 
 
 def test_c1_is_independent_of_detector_and_observer(make_runner):

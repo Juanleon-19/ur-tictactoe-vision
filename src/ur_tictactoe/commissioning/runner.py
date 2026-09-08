@@ -11,6 +11,7 @@ from ur_tictactoe.vision.aruco import ArucoDetector
 from ur_tictactoe.vision.board_observer import BoardObserver
 from ur_tictactoe.vision.camera import Camera
 from .report import Report, Result
+from .preview import VisionPreview
 
 
 class Aborted(Exception):
@@ -27,7 +28,7 @@ class Runner:
         timeout=15.0, hold=1.0, ask=input, emit=print,
         clock=time.monotonic, sleep=time.sleep, camera_factory=Camera,
         detector_factory=ArucoDetector, observer_factory=BoardObserver,
-        modbus_factory=ModbusClient, test_evidence=None,
+        modbus_factory=ModbusClient, test_evidence=None, preview_factory=VisionPreview,
     ):
         if any(not math.isfinite(v) or v <= 0 for v in (window, timeout, hold)):
             raise ValueError("Durations must be finite and positive")
@@ -38,6 +39,7 @@ class Runner:
         self.camera_factory, self.detector_factory = camera_factory, detector_factory
         self.observer_factory, self.modbus_factory = observer_factory, modbus_factory
         self.test_evidence = test_evidence
+        self.preview_factory = preview_factory
         self.aborted = False
         self.current_observed = {}
         self.current_comments = []
@@ -151,7 +153,28 @@ class Runner:
                     values["measured_fps"] = values["frames"] / values["elapsed_seconds"]
         return values
 
-    def sample(self, *, observer=None, seconds=None):
+    def preview(self, camera, detector):
+        self.emit("Posicione cámara y tablero. Presione C para confirmar y comenzar la medición. Q/Esc cancela.")
+        started, frames = self.clock(), 0
+        with self.stage("preview"):
+            with self.preview_factory() as window:
+                while True:
+                    self.check_abort()
+                    with self.stage("camera_read"):
+                        frame = camera.read()
+                    with self.stage("aruco_detection"):
+                        detection = detector.detect(frame)
+                    frames += 1
+                    elapsed = self.clock() - started
+                    key = window.show(frame, detection, frames / elapsed if elapsed > 0 else 0.0)
+                    if key in (27, ord("q"), ord("Q")):
+                        self.aborted = True
+                        raise Aborted()
+                    if key in (ord("c"), ord("C")):
+                        self.current_comments.append("Preview C2 confirmado por el operador con C")
+                        return
+
+    def sample(self, *, observer=None, seconds=None, preview=False):
         self.check_abort()
         with self.stage("observer"):
             observer = observer or self.observer_factory(self.vision_config.observer)
@@ -159,9 +182,11 @@ class Runner:
             detector = self.detector_factory(self.vision_config.aruco.dictionary, "robust")
         counts = dict.fromkeys(CELL_IDS, 0)
         frames = 0
-        started = self.clock()
         with self.opened_camera() as (camera, settings):
+            if preview:
+                self.preview(camera, detector)
             duration = self.window if seconds is None else seconds
+            started = self.clock()
             while self.clock() - started < duration:
                 self.check_abort()
                 with self.stage("camera_read"):
@@ -174,14 +199,16 @@ class Runner:
                     counts[marker] += 1
                 frames += 1
                 self.sleep(0.01)
-            if not frames:
-                raise RuntimeError("No frames captured")
+            with self.stage("camera_read"):
+                if not frames:
+                    raise RuntimeError("No frames captured")
             elapsed = self.clock() - started
             return observer, {
                 "resolution": [settings["width"], settings["height"]],
                 "configured_fps": self.vision_config.camera.fps,
                 "camera_fps": settings["fps"], "measured_fps": frames / elapsed,
                 "profile": "robust", "frames": frames,
+                "capture_elapsed_seconds": elapsed,
                 "visible_ids": [marker for marker, count in counts.items() if count],
                 "visibility_percent": {str(k): v * 100 / frames for k, v in counts.items()},
                 "id18_visibility_percent": counts[18] * 100 / frames,

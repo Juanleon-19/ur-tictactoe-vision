@@ -38,7 +38,7 @@ def camera(r):
 
 
 def aruco(r):
-    _, values = r.sample()
+    _, values = r.sample(preview=True)
     r.current_observed.update(values)
     if any(percent == 0 for percent in r.current_observed["visibility_percent"].values()):
         raise RuntimeError("Missing operational markers")

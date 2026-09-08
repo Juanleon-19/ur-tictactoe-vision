@@ -35,7 +35,7 @@ su procedencia la declara el operador, no constituye una certificación del SHA.
 |---|---|
 | C0 SOFTWARE | Python, dependencias instaladas, configuración cargada y resultados del XML pytest. |
 | C1 CAMERA | Solo Camera: apertura, ajustes, frames válidos durante ventana configurable, resolución y FPS declarado/efectivo/medido. Cierre garantizado; no crea detector ni observer. |
-| C2 ARUCO | Solo IDs 10..18 en resultados; porcentaje por frame, ID18 explícito. FAIL si algún ID nunca se vio. PASS no significa visibilidad suficiente: revisar porcentajes. |
+| C2 ARUCO | Preview en vivo: C confirma, Q/Esc cancela. Medición posterior de IDs 10..18; porcentaje por frame, ID18 explícito. FAIL si algún ID nunca se vio. PASS no significa visibilidad suficiente: revisar porcentajes. |
 | C3 BOARD EMPTY | Confirmar tablero vacío; observer ready, nueve FREE y aceptación de `PhysicalGameRuntime.start`. Ningún I/O de robot. |
 | C4 OCCUPANCY | Referencia vacía; confirmar ficha 5 y luego exactamente 1,5,9. Cada ventana debe terminar estable, sin UNCERTAIN ni ocupaciones adicionales. |
 | C5 OCCLUSION | Referencia vacía; pasar mano tras YES durante captura; ventana adicional de recuperación sin reiniciar observer. Requiere pérdida observada y todas FREE al final. |
@@ -89,6 +89,21 @@ del controlador de cámara puede exceder la ventana: no es un timeout del driver
 Los errores incluyen `error_type` y una etiqueta fija `failure_stage`, como
 `camera_open`, `camera_settings`, `camera_read`, `camera_close`, `aruco_detection`,
 `observer`, `modbus_connect` o `modbus_read`. No se serializan mensajes arbitrarios.
+
+En C2–C5, `--window` empieza después de abrir la cámara y consultar sus ajustes.
+`capture_elapsed_seconds` y `measured_fps` corresponden a la adquisición;
+`duration_seconds` incluye apertura, confirmaciones y cierre. Un driver que tarda
+50–60 s en abrir no consume la ventana de captura.
+
+C2 muestra video anotado, IDs visibles/9, missing IDs y FPS antes de medir.
+Posicione cámara y tablero y pulse **C** con el foco en la ventana del preview.
+Se cierra solo esa ventana y se mantiene la misma cámara abierta para medir.
+Los frames y el tiempo del preview no cuentan en las estadísticas ni actualizan
+BoardObserver. **Q/Esc** cancela, libera la ventana/cámara y deja los pasos
+posteriores SKIPPED; no inicia la medición. C3–C5 conservan sus confirmaciones de
+terminal, sin añadir previews entre cada adquisición. Los errores de la ventana
+se identifican como `failure_stage: preview`; errores de lectura/detección
+conservan `camera_read`/`aruco_detection`.
 
 ## Preparación rápida para el operador
 
