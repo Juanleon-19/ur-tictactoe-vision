@@ -40,4 +40,5 @@ assets/aruco/*.png
 # Build / packaging
 build/
 dist/
+release/
 *.egg-info/

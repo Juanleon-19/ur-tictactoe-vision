@@ -1,4 +1,4 @@
-param([string]$Product = "")
+param([string]$Product = "", [string]$EvidenceRoot = "")
 $ErrorActionPreference = "Stop"
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 if (-not $Product) { $Product = Join-Path $projectRoot "dist\RobotTriqui\RobotTriqui.exe" }
@@ -12,7 +12,8 @@ $logo = Join-Path $bundle "_internal\assets\javeriana_logo.png"
 if (-not (Test-Path -LiteralPath $logo)) { throw "Bundled logo is missing" }
 $sourceHash = (Get-FileHash -LiteralPath (Join-Path $projectRoot "assets\javeriana_logo.png")).Hash
 if ((Get-FileHash -LiteralPath $logo).Hash -ne $sourceHash) { throw "Bundled logo differs from source" }
-$sessionDir = Join-Path $projectRoot ("reports\smoke_" + (Get-Date -Format "yyyyMMdd_HHmmss_fff"))
+if (-not $EvidenceRoot) { $EvidenceRoot = Join-Path $projectRoot "reports" }
+$sessionDir = Join-Path $EvidenceRoot ("smoke_" + (Get-Date -Format "yyyyMMdd_HHmmss_fff"))
 New-Item -ItemType Directory -Path $sessionDir | Out-Null
 $workingDir = Join-Path $sessionDir "empty-cwd"
 New-Item -ItemType Directory -Path $workingDir | Out-Null

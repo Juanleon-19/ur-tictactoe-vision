@@ -79,3 +79,96 @@ local de sesión. No introducir secretos en el campo host. Reports está ignorad
 Estos ensayos físicos **no se han ejecutado** durante el desarrollo del runner.
 Los tests de pytest usan cámara, reloj, detección y transporte falsos; el
 observador y la puerta de aceptación de runtime son los productivos.
+
+## Preparación rápida para el operador
+
+El launcher es solo un menú; no implementa ensayos ni responde YES. Desde el
+repositorio, `scripts/run_commissioning.ps1` permite seleccionar un grupo.
+`-Group 1` evita el menú; `-DryRun` muestra argumentos sin arrancar Python ni hardware.
+Usa `.venv/Scripts/python.exe`, configura temporalmente PYTHONPATH a `src`, busca
+`config/app.local.yaml` y evidencia `reports/pytest.xml` cuando existen, y devuelve
+el código de salida del runner. `-Python`, `-Config` y `-TestReport` permiten rutas
+explícitas (las relativas se interpretan desde el repositorio).
+
+| Grupo | Comando del launcher | Pasos existentes |
+|---|---|---|
+| 1 Software | `scripts/run_commissioning.ps1 -Group 1` | C0 |
+| 2 Visión completa | `scripts/run_commissioning.ps1 -Group 2` | C1 C2 C3 C4 C5 |
+| 3 Red UR | `scripts/run_commissioning.ps1 -Group 3` | C6 |
+| 4 Mode0 | `scripts/run_commissioning.ps1 -Group 4 -AllowMotion` | C7 |
+| 5 Cell5 SAFE | `scripts/run_commissioning.ps1 -Group 5 -AllowMotion` | C8 |
+| 6 Grid SAFE | `scripts/run_commissioning.ps1 -Group 6 -AllowMotion` | C9 |
+| 7 Todos disponibles | `scripts/run_commissioning.ps1 -Group 7 -AllowMotion` | C0 C1 C2 C3 C4 C5 C6 C7 C8 C9 |
+
+Sin `-AllowMotion` nunca añade `--allow-motion`; C7–C9 quedan BLOCKED. Con el flag,
+siguen siendo obligatorias todas las confirmaciones internas. En el grupo 7,
+detenerse después de C7 para configurar Mode1 físicamente antes de confirmar C8;
+el launcher no cambia modos. Un FAIL de movimiento o ABORT detiene la sesión.
+
+El operador puede preparar los YAML (no se crean ni versionan en esta entrega):
+
+```powershell
+Copy-Item config/app.example.yaml config/app.local.yaml
+Copy-Item config/vision.example.yaml config/vision.local.yaml
+```
+
+En `app.local.yaml`: rellenar `robot.host`, mantener `aruco_profile: robust` y
+añadir `vision_config: vision.local.yaml`. En `vision.local.yaml`: verificar
+`camera.index` y backend AUTO/DSHOW/MSMF si hace falta; resolución 1280×720;
+mantener exclusivamente `cell_ids: [10,11,12,13,14,15,16,17,18]` y umbrales existentes.
+No usar IDs 0..3. Antes de copiar, comprobar que no existen YAML locales para no
+sobrescribir una configuración del operador.
+
+## Hoja compacta de aceptación física
+
+Estos objetivos prácticos son criterios del operador, **no nuevos umbrales del
+runner ni cambios de BoardObserver**. Registrar observaciones en el reporte de
+sesión y anotaciones locales adicionales cuando el objetivo práctico no se cumpla.
+
+| Paso | Criterio de aceptación en el banco |
+|---|---|
+| C1 | Cámara abre, frame válido, resolución efectiva registrada, FPS observado; objetivo práctico ≥20 FPS. |
+| C2 | Solo 10..18; todos observados durante ventana; revisar porcentaje por ID, objetivo práctico ≥70 % cada uno, especialmente ID18. |
+| C3 | ready y celdas 1..9 FREE. |
+| C4 | CELL5 produce exactamente {5}; CELL1,5,9 produce exactamente {1,5,9}. |
+| C5 | Mano produce pérdida temporal; al retirarse no queda ocupación falsa persistente. |
+| C6 | Modbus conecta y STATUS129 es válido. Solo lectura. |
+| C7 | MOTION_MODE=0 confirmado; READY → BUSY → DONE held → READY. Confirmar que el robot NO se mueve. |
+| C8 | MOTION_MODE=1 y CELL5_SAFE; operador verifica centro, orientación, altura y trayecto seguro antes de responder YES a la posición final. |
+| C9 | Celdas 1..9 una por una; confirmar antes y después de cada movimiento. |
+| C10 | BLOCKED hasta modelo/URCap e integración real. Futuro: 3 ciclos initialize/open/close sin error. |
+| C11 | BLOCKED. Futuro: agarre repetible desde PICK fijo. |
+| C12 | BLOCKED. Futuro: pick → place Cell5 → retreat → HOME. |
+| C13 | BLOCKED. Futuro: probar primero 1,3,7,9 y después las demás. |
+| C14 | BLOCKED. Futuro: una partida física completa. |
+
+## Datos físicos que debe definir el operador
+
+| Bloque | Dato | Definición o acción requerida |
+|---|---|---|
+| MODE0 | UR host | Dirección real en YAML local; sin valor preasignado. |
+| MODE0 | Script cargado | Confirmar triqui_controller.script en el robot. |
+| MODE0 | MOTION_MODE | 0, configurado por el operador en el robot. |
+| MODE1 | Feature TABLERO | Enseñar y verificar físicamente. |
+| MODE1 | TCP | Definir/verificar según herramienta real. |
+| MODE1 | Payload | Definir/verificar según herramienta y carga reales. |
+| MODE1 | Z_SAFE | Medir/enseñar altura segura, sin valor inventado. |
+| MODE1 | CELL_ORIENTATION | Enseñar/verificar orientación real. |
+| MODE1 | JOINT_MOTION | Definir/verificar parámetros seguros reales. |
+| MODE1 | MOTION_MODE | 1, solo tras verificar protecciones y geometría. |
+| TABLERO | Origo | Centro de Cell1. |
+| TABLERO | +X | Cell1 → Cell3. |
+| TABLERO | +Y | Cell1 → Cell7. |
+| TABLERO | GRID | 0.0655 m, dato acordado; comprobar en tablero físico. |
+| MODE2 adicional | Modelo Robotiq | Identificar modelo exacto; pendiente. |
+| MODE2 adicional | Firmware | Registrar si está disponible; pendiente. |
+| MODE2 adicional | Versión URCap | Identificar versión exacta; pendiente. |
+| MODE2 adicional | HOME | Enseñar/verificar pose real. |
+| MODE2 adicional | PICK_APPROACH | Enseñar/verificar pose real. |
+| MODE2 adicional | PICK | Enseñar/verificar PICK fijo real. |
+| MODE2 adicional | PICK_EXIT | Enseñar/verificar pose real. |
+| MODE2 adicional | LINEAR_MOTION | Definir/verificar parámetros seguros reales. |
+| MODE2 adicional | Z_PLACE | Medir/enseñar altura real de colocación. |
+
+Esta tabla no habilita Mode2 ni ROBOTIQ_CONFIGURED. C10–C14 siguen BLOCKED;
+ninguna función ficticia sustituye la implementación y validación físicas.
