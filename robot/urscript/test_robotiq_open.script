@@ -1,0 +1,17 @@
+# EXPERIMENTAL: prueba independiente de apertura; no mueve el brazo.
+# rq_* son funciones proporcionadas por el Robotiq URCap, no funciones nativas
+# de URScript. Pueden necesitar ejecucion dentro de un programa PolyScope que
+# tenga cargadas/incluidas sus definiciones para el URCap instalado.
+# Si rq_* aparece como funcion desconocida, usar el programa/template PolyScope
+# generado por el Robotiq URCap; no intentar reemplazarlo por IO.
+# Esta prueba reinicia, activa y abre la pinza; no la cierra despues.
+
+def test_robotiq_open():
+  textmsg("ROBOTIQ TEST START")
+  rq_reset()
+  rq_activate_and_wait()
+  rq_open_and_wait()
+  textmsg("ROBOTIQ OPEN COMPLETE")
+end
+
+test_robotiq_open()
