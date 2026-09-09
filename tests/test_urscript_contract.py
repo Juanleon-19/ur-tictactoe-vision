@@ -1,7 +1,8 @@
 """Static URScript contract checks, NOT a URScript interpreter or robot test.
 
-Only scalar grid expressions are evaluated as arithmetic. Syntax acceptance,
-kinematics, motion safety and URCap availability require the actual controller.
+Scalar expressions and a simple function subset run with synthetic poses and
+fake motion/gripper calls. URScript syntax acceptance, kinematics, motion safety
+and URCap availability require the actual controller.
 """
 
 import math
@@ -24,24 +25,27 @@ def constant(name):
     return re.search(rf"  global {name} = (.+)", CODE).group(1).strip()
 
 
-@pytest.mark.parametrize("cell,xy", [
-    (1, (0, 0)), (2, (.0655, 0)), (3, (.1310, 0)),
-    (4, (0, .0655)), (5, (.0655, .0655)), (6, (.1310, .0655)),
-    (7, (0, .1310)), (8, (.0655, .1310)), (9, (.1310, .1310)),
-])
-def test_measured_pitch_and_mapping_from_script_expressions(cell, xy):
-    values = {key: float(constant(key)) for key in
-              ("GRID_DX", "GRID_DY", "CELL1_X", "CELL1_Y")}
-    assert values["GRID_DX"] == values["GRID_DY"] == .0655
-    assert values["CELL1_X"] == values["CELL1_Y"] == 0
-    values["cell"] = cell
-    body = function("cell_relative_pose")
-    for name in ("row", "column"):
-        expression = re.search(rf"local {name} = (.+)", body).group(1)
+# Synthetic non-planar corners; never production robot coordinates.
+CORNERS = {"P1": [0, 0, 1, .1, .2, .3], "P3": [4, 0, 3, 4, 5, 6],
+           "P7": [0, 6, 5, 7, 8, 9], "P9": [8, 10, 9, 10, 11, 12]}
+
+
+def arithmetic_pose(cell):
+    values = dict(CORNERS, cell=cell)
+    body = function("interpolated_cell_pose")
+    for name, expression in re.findall(r"local (\w+) = (.+)", body):
         values[name] = eval(expression, {"__builtins__": {}, "floor": math.floor}, values)
-    expressions = re.search(r"return p\[(.*)\]", body, re.S).group(1).split(",")
-    actual = [eval(expr.strip(), {"__builtins__": {}}, values) for expr in expressions[:2]]
-    assert actual == pytest.approx(xy)
+    expressions = re.search(r"return p\[(.*)\]", body).group(1).split(",")
+    return [eval(expr.strip(), {"__builtins__": {}}, values) for expr in expressions]
+
+
+@pytest.mark.parametrize("cell,xyz", [
+    (1, [0,0,1]), (2, [2,0,2]), (3, [4,0,3]),
+    (4, [0,3,3]), (5, [3,4,4.5]), (6, [6,5,6]),
+    (7, [0,6,5]), (8, [4,8,7]), (9, [8,10,9]),
+])
+def test_interpolated_xyz_and_fixed_orientation(cell, xyz):
+    assert arithmetic_pose(cell) == pytest.approx(xyz + CORNERS["P1"][3:])
 
 
 def test_protocol_and_mode_zero_remain_no_motion():
@@ -56,62 +60,115 @@ def test_protocol_and_mode_zero_remain_no_motion():
     ]
 
 
-def test_unmeasured_parameters_are_not_fictitious_poses_or_rates():
-    for name in ("TABLERO_VALUES", "Z_SAFE", "Z_PLACE", "CELL_ORIENTATION",
-                 "HOME", "PICK_APPROACH", "PICK", "PICK_EXIT", "JOINT_MOTION", "LINEAR_MOTION"):
-        assert constant(name) == "[]"
-    for name in ("GEOMETRY_CONFIGURED", "ORIENTATION_CONFIGURED", "PICK_CONFIGURED",
-                 "ROBOTIQ_CONFIGURED", "MOTION_CONFIGURED"):
-        assert constant(name) == "False"
+def test_only_assignment_poses_and_validated_motion_parameters():
+    for forbidden in ("TABLERO", "GRID_DX", "GRID_DY", "CELL1_X", "CELL1_Y",
+                      "CELL_ORIENTATION", "GEOMETRY_CONFIGURED", "ORIENTATION_CONFIGURED",
+                      "Z_SAFE", "Z_PLACE", "_const", "get_inverse_kin_has_solution", "=[]"):
+        assert forbidden not in CODE.replace(" = []", "=[]")
+    for name, value in {"APPROACH_DZ": -.040, "JOINT_A": .20, "JOINT_V": .10,
+                        "LINEAR_A": .05, "LINEAR_V": .02}.items():
+        assert float(constant(name)) == value
+    assert not re.search(r"global P(?:1|_PICK|_HOME) =", CODE)
+    # Initialization is guarded so C7 does not evaluate poses.
+    assert 'if ((MOTION_MODE == 1) or (MOTION_MODE == 2)):' in CODE
+    for cell in (2, 3, 4, 5, 6, 7, 8, 9):
+        assert f"global P{cell} = interpolated_cell_pose({cell})" in CODE
 
 
-def test_mode_one_checks_geometry_orientation_before_any_motion():
-    gate = function("safe_grid_configured")
-    assert "if ((GEOMETRY_CONFIGURED == False) or (ORIENTATION_CONFIGURED == False)):\n      return False" in gate
-    assert "length(Z_SAFE) != 1" in gate
-    assert "Z_SAFE[0] <= 0" in gate
+def translated_function(name, env):
+    """Execute this simple function subset with fakes, NOT a URScript parser."""
+    import textwrap
+    lines = []
+    for line in textwrap.dedent(function(name)).splitlines():
+        if line.strip() == "end":
+            continue
+        line = line.replace("local ", "")
+        if "global " in line:
+            variable = line.strip().split()[1]
+            lines.insert(0, "    global " + variable)
+            line = line.replace("global ", "")
+        if line.strip() == "halt":
+            line = line.replace("halt", "raise ValueError('Invalid cell')")
+        lines.append("    " + line)
+    parameter = "" if name == "gripper_initialize" else "cell"
+    exec(f"def {name}({parameter}):\n" + "\n".join(lines), env)
+    return env[name]
+
+
+def motion_environment():
+    class PoseLiteral:
+        def __getitem__(self, components):
+            return tuple(components)
+    events = []
+    env = {"floor": math.floor, "p": PoseLiteral(), "gripper_initialized": False,
+           "textmsg": lambda *args: None, "get_inverse_kin": lambda pose: pose,
+           "pose_trans": lambda pose, offset: ("up", pose, offset),
+           "P_PICK": "pickup", "P_HOME": "home"}
+    env.update({key: float(constant(key)) for key in
+                ("APPROACH_DZ", "JOINT_A", "JOINT_V", "LINEAR_A", "LINEAR_V")})
+    env.update({f"P{cell}": tuple(arithmetic_pose(cell)) for cell in range(1, 10)})
+    for name in ("movej", "movel", "rq_activate_and_wait", "rq_open_and_wait", "rq_close_and_wait"):
+        env[name] = lambda *args, name=name, **kwargs: events.append((name, args, kwargs))
+    for name in ("selected_cell_pose", "gripper_initialize", "move_to_cell_safe", "prepare_pick_and_place"):
+        translated_function(name, env)
+    return env, events
+
+
+@pytest.mark.parametrize("cell", range(1, 10))
+def test_explicit_selection_and_mode1_only_moves_to_up(cell):
+    env, events = motion_environment()
+    assert env["selected_cell_pose"](cell) == env[f"P{cell}"]
+    assert env["move_to_cell_safe"](cell) is True
+    assert events == [("movej", (("up", env[f"P{cell}"], (0,0,-.04,0,0,0)),), {"a": .20, "v": .10})]
     body = function("move_to_cell_safe")
-    assert body.index("safe_grid_configured() == False") < body.index("return False") < body.index("movej(")
-    assert "pose_trans(TABLERO, cell_relative_pose(cell, Z_SAFE[0]))" in body
-    assert not any(token in body for token in ("gripper_", "PICK", "movel("))
+    assert not any(token in body for token in ("movel", "rq_", "gripper", "P_PICK"))
+    assert 'return move_to_cell_safe(cell)' in function("execute_cell")
 
 
-def test_mode_two_checks_pick_and_robotiq_before_initialization_or_motion():
-    gate = function("pick_place_configured")
-    assert "safe_grid_configured() == False" in gate
-    assert "if ((PICK_CONFIGURED == False) or (ROBOTIQ_CONFIGURED == False)):\n      return False" in gate
-    assert "length(HOME) != 6" in gate
-    assert "length(Z_PLACE) != 1" in gate
-    assert "Z_PLACE[0] >= Z_SAFE[0]" in gate
-    body = function("prepare_pick_and_place")
-    assert body.index("pick_place_configured() == False") < body.index("gripper_initialize()") < body.index("movej(")
-    assert "if (gripper_initialize() == False):\n      return False" in body
+@pytest.mark.parametrize("cell", (0, 10, 1.5))
+def test_invalid_cell_never_moves_or_grips(cell):
+    env, events = motion_environment()
+    with pytest.raises(ValueError):
+        env["selected_cell_pose"](cell)
+    assert env["prepare_pick_and_place"](cell) is False
+    assert not events
 
 
-def test_robotiq_functions_are_documented_but_not_assumed_available():
-    for name in ("rq_reset", "rq_activate_and_wait", "rq_open_and_wait", "rq_close_and_wait"):
-        assert f"# {name}()" in SCRIPT or f": {name}()" in SCRIPT
-        assert f"{name}(" not in CODE
-    for name in ("gripper_initialize", "gripper_open", "gripper_close"):
-        body = function(name)
-        assert "ROBOTIQ_CONFIGURED == False" in body
-        assert body.rstrip().endswith("return False")
-    assert "set_digital_out" not in CODE
-    assert "set_tool_digital_out" not in CODE
+def test_mode2_exact_sequence_and_activation_only_once():
+    env, events = motion_environment()
+    offset = (0,0,-.04,0,0,0)
+    joints, linear = {"a": .20, "v": .10}, {"a": .05, "v": .02}
+    for cell in (5, 1):
+        events.clear()
+        assert env["prepare_pick_and_place"](cell) is True
+        pose = env[f"P{cell}"]
+        expected = [("rq_activate_and_wait", (), {})] if cell == 5 else []
+        expected += [
+            ("rq_open_and_wait", (), {}),
+            ("movej", (("up", "pickup", offset),), joints),
+            ("movel", ("pickup",), linear), ("rq_close_and_wait", (), {}),
+            ("movel", (("up", "pickup", offset),), linear),
+            ("movej", (("up", pose, offset),), joints),
+            ("movel", (pose,), linear), ("rq_open_and_wait", (), {}),
+            ("movel", (("up", pose, offset),), linear),
+            ("movej", ("home",), joints),
+        ]
+        assert events == expected
+    assert 'return prepare_pick_and_place(cell)' in function("execute_cell")
+    assert not any(token in CODE for token in ("rq_reset", "set_digital_out", "set_tool_digital_out"))
 
 
-def test_pick_place_sequence_uses_joint_transfers_and_linear_surface_moves():
-    pick = function("take_robot_piece")
-    sequence = ["movej(get_inverse_kin(taught_pose(PICK_APPROACH))", "gripper_open()",
-                "movel(taught_pose(PICK)", "gripper_close()", "movel(taught_pose(PICK_EXIT)"]
-    positions = [pick.index(step) for step in sequence]
-    assert positions == sorted(positions)
-    body = function("prepare_pick_and_place")
-    assert body.count("movej(get_inverse_kin(taught_pose(HOME))") == 2
-    assert body.index("take_robot_piece()") < body.index("movej(get_inverse_kin(cell_safe)")
-    assert body.index("movel(cell_place") < body.index("gripper_open()") < body.index("movel(cell_safe")
+def test_modbus_state_machine_is_unchanged():
+    # Frozen at f6887c1 before the taught-feature refactor (normalized newlines).
+    import hashlib
+    protocol = SCRIPT[SCRIPT.index("  global controller_status ="):]
+    assert hashlib.sha256(protocol.encode()).hexdigest() == "845ba95b3d65286a18bd35457b588e3b219efb406126e31f46c20c0f672ed478"
 
 
-def test_grid_has_no_individual_hardcoded_cell_poses():
-    assert not re.search(r"(?:CELL|cell)_?[1-9].*=.*p\[", CODE)
-    assert len(re.findall(r"\bp\[", CODE)) == 2  # generic conversion + relative formula
+def test_c1_through_c7_procedures_and_handshake_are_unchanged():
+    # Frozen at f6887c1; includes helper functions used by C1-C7.
+    import hashlib
+    source = (Path(__file__).resolve().parents[1] /
+              "src/ur_tictactoe/commissioning/tests.py").read_text(encoding="utf-8")
+    contract = source.split("def safe_grid(r, cells):")[0]
+    assert hashlib.sha256(contract.encode()).hexdigest() == "8457a0a1150752e3d248b03688d4c06d8e248d39219e106caf6058c7a2bf6ce2"

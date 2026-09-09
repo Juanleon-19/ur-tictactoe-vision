@@ -11,10 +11,12 @@
 - Packaging Windows onedir construido desde cero; smoke de proceso PASS en
   simulación y real, con cierre controlado. Smoke visual NOT CONFIRMED por falta
   de control de escritorio; no bloquea el cierre de software autorizado.
-- Runner de commissioning independiente C0–C14 preparado; C0 ejecutado con
-  evidencia pytest. C1–C9 físicos pendientes; C10–C14 bloqueados por configuración
-  e integración física. Sin modificaciones al URScript ni ejecución del robot.
-- La validación física de UR, Robotiq y calibración sigue pendiente.
+- Runner C0–C14: C6/C7 confirmados físicamente por el operador. C8/C9 usan
+  cuatro Point Features y aproximación Tool Z -40 mm; C10/C11 registran evidencia
+  manual, C12/C13 ejecutan pick-place confirmado. C14 prepara precondiciones;
+  su aceptación runtime/visión/juego requiere adaptación separada.
+- Assignments, interpolación, aproximación y Robotiq/pick-place validados por
+  el operador; la integración completa mantiene aceptación física pendiente.
 
 Este documento define el orden de implementación del proyecto. Cada fase debe cerrar con un resultado verificable antes de iniciar la siguiente.
 
@@ -129,28 +131,24 @@ Esta fase se desarrolla anticipadamente porque no depende de cámara ni robot.
 
 ## Fase 4 — PolyScope
 
-**Estado:** controlador URScript paramétrico preparado; validación de movimiento
-físico pendiente.
-
-Pitch medido de 0.0655 m en ambos ejes, con Plane TABLERO en celda 1.
-Secuencia HOME/PICK/PLACE preparada con bloqueos de enseñanza. Robotiq identificado
-como fabricante; modelo y versión URCap pendientes, adaptador todavía bloqueado.
-El CLI `robot-test` reutiliza el handshake y exige `--allow-motion`. Ningún ensayo
-físico de esta preparación se da por aprobado; ver `docs/calibracion-fisica.md`.
+**Estado:** arquitectura de cuatro Point Features y Assignments validada por
+el operador en CB3 / PolyScope 3.14; controlador integrado preparado para aceptación.
 
 ### Objetivo
 
-Enseñar y validar manualmente las trayectorias físicas, en paralelo al software.
+Mantener las poses físicas en PolyScope: CELL1/CELL3/CELL7/CELL9 de colocación,
+un PICK fijo y HOME/WAIT. El Script Node consume P1/P3/P7/P9/P_PICK/P_HOME creadas
+por Assignment Nodes anteriores; no resuelve nombres de Features.
 
 ### Entregables
 
-- Feature Plane `TABLERO`;
-- cuadrícula paramétrica `GRID_DX` / `GRID_DY`;
-- origen `CELL1_X` / `CELL1_Y`;
-- alturas `Z_SAFE` / `Z_PLACE`;
-- un único PICK fijo, pendiente de enseñanza;
-- velocidades y aceleraciones verificadas;
-- retorno seguro a HOME.
+- interpolación bilineal XYZ y orientación fija P1 para las nueve celdas;
+- aproximación pose_trans(P, p[0,0,-0.040,0,0,0]): -Z Tool sube con el TCP probado;
+- Mode1 solo Pn_UP; Mode2 PICK → PLACE → HOME con Robotiq;
+- movej a=0.20, v=0.10; movel a=0.05, v=0.02, valores físicamente probados;
+- recalibración editando únicamente los cuatro Point Features del tablero.
+
+La arquitectura Plane Feature queda abandonada. Ver docs/polyscope-urscript.md.
 
 Python no generará estas trayectorias.
 
@@ -160,8 +158,7 @@ Python no generará estas trayectorias.
 
 **Estado:** interfaz software y protocolo validados mediante transporte simulado.
 En la red del ensayo: ping PASS, TCP 502 PASS, lectura de
-STATUS 129 PASS y escritura/reset de COMMAND 128 PASS. El handshake completo con
-`triqui_controller.script` sigue pendiente.
+STATUS 129 PASS y escritura/reset de COMMAND 128 PASS. C6 y el handshake Mode0 C7 fueron confirmados físicamente por el operador.
 
 ### Objetivo
 

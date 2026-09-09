@@ -41,14 +41,20 @@ su procedencia la declara el operador, no constituye una certificación del SHA.
 | C5 OCCLUSION | Referencia vacía; pasar mano tras YES durante captura; ventana adicional de recuperación sin reiniciar observer. Requiere pérdida observada y todas FREE al final. |
 | C6 CONNECTIVITY | TCP y lectura de STATUS129 exclusivamente. Nunca escribe COMMAND. |
 | C7 MODE0 | Operador confirma script y MOTION_MODE=0; READY → COMMAND5 → BUSY → DONE sostenido → COMMAND0 → READY, con tiempos. |
-| C8 CELL5 SAFE | Mode1 confirmado físicamente, autorización de CELL5 y evaluación YES/NO de posición final a altura segura. |
-| C9 GRID SAFE | 1..9, confirmación antes de **cada** movimiento y evaluación posterior. No se encadenan movimientos sin operador. |
-| C10 ROBOTIQ | BLOCKED: modelo, URCap y adaptador initialize/open/close pendientes. No inventa funciones rq_*. |
-| C11–C14 | PICK, PLACE CELL5, PLACE otras celdas, END-TO-END: declarados y BLOCKED. No existe vía para habilitarlos con un flag. |
+| C8 CELL5 SAFE | Mode1 y Assignments confirmados; COMMAND5 termina en P5_UP, Tool Z -40 mm, sin descenso. |
+| C9 GRID SAFE | COMMAND1..9 termina en Pn_UP. Confirmación antes de **cada** movimiento y evaluación posterior. |
+| C10 ROBOTIQ | Confirmación de definiciones URCap cargadas y activación/open/close comprobados. Evidencia manual, sin I/O de robot. |
+| C11 PICK | Confirmar ensayo manual PICK + close + retract a P_PICK_UP con agarre real. Sin comando PICK nuevo. |
+| C12 PLACE CELL5 | Mode2: autorizar COMMAND5, handshake completo, confirmar ficha en CELL5 y retorno HOME. |
+| C13 PLACE OTHER CELLS | Mode2: 1,3,7,9,2,4,6,8; autorización y evaluación individual por celda. |
+| C14 END-TO-END | Registrar precondiciones C1–C13, visión y cliente exclusivo. BLOCKED específico: adaptar aceptación runtime/visión/juego; no ejecuta ni acredita partida. |
 
-Para C7–C9 hacen falta `--allow-motion` **y** confirmación interactiva YES.
-Para C8–C9 además se confirma MOTION_MODE=1, GEOMETRY_CONFIGURED,
-ORIENTATION_CONFIGURED y Z_SAFE configurados físicamente. Nunca se cambian desde PC.
+Para C7–C9 y C12–C13 hacen falta `--allow-motion` **y** confirmación interactiva YES.
+C8–C9 confirman Mode1 y Assignments de cuatro esquinas; C12–C13 confirman Mode2,
+los seis Assignments y evidencia C8–C11. Nunca se cambian modo ni poses desde PC.
+C10/C11 solo registran evidencia manual explícita, sin conectar hardware.
+Antes de cada colocación confirmar celda libre, ficha en PICK y zona sin manos.
+C13 cubre las otras ocho celdas; CELL5 se verifica en C12.
 
 ```powershell
 # Solo el operador, después de verificar el robot y disponer de parada física:
@@ -59,7 +65,7 @@ python -m ur_tictactoe.commissioning --config config/app.local.yaml --steps C9 -
 
 `no` bloquea el siguiente comando del paso. `ABORT` en una pregunta o Ctrl+C
 durante captura/espera detiene la sesión: pasos posteriores SKIPPED y cierre de
-recursos. Un FAIL en C7–C9 también detiene la sesión. No se reintenta ni se limpia
+recursos. Un FAIL en C7–C9 o C12–C13 también detiene la sesión. No se reintenta ni se limpia
 COMMAND automáticamente tras fallo/aborto; el operador debe inspeccionar el
 estado físico y recuperar el controlador manualmente. COMMAND0 es un acuse,
 no una parada de emergencia. **Ctrl+C/ABORT no detiene un robot que ya se mueve**;
@@ -76,7 +82,8 @@ el SHA identifica la base, no certifica que el árbol esté limpio.
 No incluye rutas de configuración ni IP del PC; el host del robot es un dato
 local de sesión. No introducir secretos en el campo host. Reports está ignorado.
 
-Estos ensayos físicos **no se han ejecutado** durante el desarrollo del runner.
+El operador confirmó físicamente C6/C7, Assignments, Tool Z -40 mm y Robotiq/pick-place.
+El controlador integrado C8–C14 requiere su propia evidencia. No se ejecutó hardware durante esta entrega.
 Los tests de pytest usan cámara, reloj, detección y transporte falsos; el
 observador y la puerta de aceptación de runtime son los productivos.
 
@@ -153,7 +160,7 @@ explícitas (las relativas se interpretan desde el repositorio).
 | 4 Mode0 | `scripts/run_commissioning.ps1 -Group 4 -AllowMotion` | C7 |
 | 5 Cell5 SAFE | `scripts/run_commissioning.ps1 -Group 5 -AllowMotion` | C8 |
 | 6 Grid SAFE | `scripts/run_commissioning.ps1 -Group 6 -AllowMotion` | C9 |
-| 7 Todos disponibles | `scripts/run_commissioning.ps1 -Group 7 -AllowMotion` | C0 C1 C2 C3 C4 C5 C6 C7 C8 C9 |
+| 7 Grupo original C0–C9 | `scripts/run_commissioning.ps1 -Group 7 -AllowMotion` | C0 C1 C2 C3 C4 C5 C6 C7 C8 C9 |
 
 Sin `-AllowMotion` nunca añade `--allow-motion`; C7–C9 quedan BLOCKED. Con el flag,
 siguen siendo obligatorias todas las confirmaciones internas. En el grupo 7,
@@ -189,41 +196,33 @@ sesión y anotaciones locales adicionales cuando el objetivo práctico no se cum
 | C5 | Mano produce pérdida temporal; al retirarse no queda ocupación falsa persistente. |
 | C6 | Modbus conecta y STATUS129 es válido. Solo lectura. |
 | C7 | MOTION_MODE=0 confirmado; READY → BUSY → DONE held → READY. Confirmar que el robot NO se mueve. |
-| C8 | MOTION_MODE=1 y CELL5_SAFE; operador verifica centro, orientación, altura y trayecto seguro antes de responder YES a la posición final. |
+| C8 | MOTION_MODE=1 y P5_UP; verificar centro, orientación, elevación Tool Z -40 mm y trayecto antes de confirmar. |
 | C9 | Celdas 1..9 una por una; confirmar antes y después de cada movimiento. |
-| C10 | BLOCKED hasta modelo/URCap e integración real. Futuro: 3 ciclos initialize/open/close sin error. |
-| C11 | BLOCKED. Futuro: agarre repetible desde PICK fijo. |
-| C12 | BLOCKED. Futuro: pick → place Cell5 → retreat → HOME. |
-| C13 | BLOCKED. Futuro: probar primero 1,3,7,9 y después las demás. |
-| C14 | BLOCKED. Futuro: una partida física completa. |
+| C10 | URCap cargado y activación/open/close comprobados; confirmación manual, sin I/O. |
+| C11 | Confirmación manual de PICK + close + retract con agarre real. |
+| C12 | COMMAND5 Mode2: ficha colocada en CELL5 y retorno a HOME. |
+| C13 | Primero 1,3,7,9; después 2,4,6,8. Autorizar cada ciclo y confirmar resultado. |
+| C14 | Precondiciones registradas; adaptación de aceptación runtime/visión/juego pendiente, sin partida ejecutada. |
 
-## Datos físicos que debe definir el operador
+## Configuración física vigente
 
-| Bloque | Dato | Definición o acción requerida |
-|---|---|---|
-| MODE0 | UR host | Dirección real en YAML local; sin valor preasignado. |
-| MODE0 | Script cargado | Confirmar triqui_controller.script en el robot. |
-| MODE0 | MOTION_MODE | 0, configurado por el operador en el robot. |
-| MODE1 | Feature TABLERO | Enseñar y verificar físicamente. |
-| MODE1 | TCP | Definir/verificar según herramienta real. |
-| MODE1 | Payload | Definir/verificar según herramienta y carga reales. |
-| MODE1 | Z_SAFE | Medir/enseñar altura segura, sin valor inventado. |
-| MODE1 | CELL_ORIENTATION | Enseñar/verificar orientación real. |
-| MODE1 | JOINT_MOTION | Definir/verificar parámetros seguros reales. |
-| MODE1 | MOTION_MODE | 1, solo tras verificar protecciones y geometría. |
-| TABLERO | Origo | Centro de Cell1. |
-| TABLERO | +X | Cell1 → Cell3. |
-| TABLERO | +Y | Cell1 → Cell7. |
-| TABLERO | GRID | 0.0655 m, dato acordado; comprobar en tablero físico. |
-| MODE2 adicional | Modelo Robotiq | Identificar modelo exacto; pendiente. |
-| MODE2 adicional | Firmware | Registrar si está disponible; pendiente. |
-| MODE2 adicional | Versión URCap | Identificar versión exacta; pendiente. |
-| MODE2 adicional | HOME | Enseñar/verificar pose real. |
-| MODE2 adicional | PICK_APPROACH | Enseñar/verificar pose real. |
-| MODE2 adicional | PICK | Enseñar/verificar PICK fijo real. |
-| MODE2 adicional | PICK_EXIT | Enseñar/verificar pose real. |
-| MODE2 adicional | LINEAR_MOTION | Definir/verificar parámetros seguros reales. |
-| MODE2 adicional | Z_PLACE | Medir/enseñar altura real de colocación. |
+Seguir [los seis Assignments previos al Script Node](polyscope-urscript.md).
+Cuatro Point Features de colocación → P1/P3/P7/P9 → interpolación XYZ con
+orientación P1 → Pn → Pn_UP por Tool Z -40 mm. P_PICK/P_HOME provienen de sus
+Features respectivos. Para recalibrar el tablero editar solo las cuatro esquinas
+y reiniciar desde los Assignments. No se usa Plane ni alturas relativas al tablero.
 
-Esta tabla no habilita Mode2 ni ROBOTIQ_CONFIGURED. C10–C14 siguen BLOCKED;
-ninguna función ficticia sustituye la implementación y validación físicas.
+C10–C14 se seleccionan directamente desde el CLI; el launcher conserva sus grupos originales:
+
+```powershell
+python -m ur_tictactoe.commissioning --config config/app.local.yaml --steps C10 C11
+python -m ur_tictactoe.commissioning --config config/app.local.yaml --steps C12 --allow-motion
+python -m ur_tictactoe.commissioning --config config/app.local.yaml --steps C13 --allow-motion
+python -m ur_tictactoe.commissioning --config config/app.local.yaml --steps C14
+```
+
+Ajustar --timeout al ciclo físico medido si los tiempos de traslado conservadores
+superan la espera configurada; no acelerar movimientos para satisfacer el timeout.
+C14 no conecta hardware: confirma evidencia vigente C1–C13, tablero vacío estable,
+suministro, parada y cliente exclusivo. Su BLOCKED identifica la adaptación
+runtime/visión/juego pendiente; no significa ausencia de integración Robotiq.

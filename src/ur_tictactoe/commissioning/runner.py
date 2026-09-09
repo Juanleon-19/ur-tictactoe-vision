@@ -266,7 +266,7 @@ class Runner:
                 status = "FAIL"
                 # Do not serialize arbitrary exception messages (paths/credentials).
                 self.current_observed["error_type"] = type(exc).__name__
-                if name in ("C7", "C8", "C9"):
+                if name in ("C7", "C8", "C9", "C12", "C13"):
                     self.aborted = True
                     self.current_comments.append(
                         "Fallo de ensayo de movimiento: sesión detenida; inspeccione el robot "

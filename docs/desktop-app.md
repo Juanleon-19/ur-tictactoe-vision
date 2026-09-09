@@ -71,7 +71,8 @@ certificación. **Siguiente paso recomendado** toma el primer C1–C14 sin PASS;
 C0 se muestra separadamente como evidencia de software. C1–C4 PASS recomienda C5,
 y C5 PASS avanza a C6. **VER PROCEDIMIENTO** solo navega a la ayuda del paso.
 Los resúmenes C1–C14 describen objetivo, preparación, observación, criterio y riesgo,
-según el harness existente. C10–C14 siguen sin habilitarse en ese harness.
+según el harness existente. C10/C11 registran evidencia manual; C12/C13 realizan ciclos confirmados.
+C14 registra precondiciones y señala la aceptación runtime/visión/juego pendiente.
 
 **Solucionar problema** ofrece siete opciones con estado runtime y acciones sugeridas.
 Help usa scroll vertical y no ejecuta commissioning, terminales ni comandos de robot.

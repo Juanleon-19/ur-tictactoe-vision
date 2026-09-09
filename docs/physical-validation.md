@@ -40,23 +40,20 @@ diferente. El servidor es UR Modbus TCP, puerto `502`. Contrato actual: registro
 Sin habilitar movimiento: el PC escribe `COMMAND=5` y el UR lee `5`; el UR
 escribe `STATUS=2` y el PC lee `2`.
 
-## C. Feature Plane / cuadrícula
+## C. Cuatro Point Features / interpolación
 
-Prueba posterior y física. Crear en PolyScope el Feature Plane `TABLERO` con tres
-puntos enseñados. El pitch ya medido es 0.0655 m en ambos ejes: hueco de
-60 mm y separación de 5,5 mm. El origen es el centro de celda 1, +X hacia celda 3
-y +Y hacia celda 7. URScript calcula las nueve celdas relativas al Feature;
-Python no calcula ni transmite sus coordenadas.
+Arquitectura validada por el operador: cuatro Point Features de colocación
+CELL1/CELL3/CELL7/CELL9 y Assignments P1/P3/P7/P9 antes del Script Node.
+Interpolar XYZ, conservar orientación P1 y elevar Pn mediante Tool Z -40 mm.
+La selección de Features, aproximación y pick-place con Robotiq ya se probaron.
 
-La primera prueba no baja a la superficie: validar CELL5_SAFE y después cada
-`CELL_N_SAFE` a una altura enseñada. Probar una celda por comando y verificar que
-el TCP queda sobre el centro correcto sin riesgo de choque. Solo después se
-define `CELL_N_PLACE` a la altura real. Si se mueve el tablero se reenseña el
-Feature Plane, no las nueve celdas.
+Aceptar el controlador integrado: C8 primero P5_UP, luego C9 P1_UP..P9_UP.
+No bajar ni accionar pinza en Mode1. Para recalibrar, editar las cuatro esquinas
+y reejecutar los Assignments; Python no calcula ni transmite coordenadas.
 
 ## D. Movimiento + Modbus
 
-Solo después de B y C. Probar primero `CELL 5` y después las nueve celdas.
-
-Seguir los doce pasos de [Calibración física](calibracion-fisica.md), incluyendo
-Robotiq, HOME/PICK y Z_PLACE antes de Mode 2. Todos esos ensayos siguen pendientes.
+Seguir [Calibración física](calibracion-fisica.md): C10/C11 confirman Robotiq y
+PICK manual; C12/C13 prueban colocación con Mode2 y confirmación individual.
+C14 prepara la aceptación de una partida runtime/visión/juego, aún pendiente.
+C6/C7 fueron confirmados físicamente; su contrato 128/129 se conserva.

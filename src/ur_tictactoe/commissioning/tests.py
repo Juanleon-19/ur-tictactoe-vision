@@ -169,28 +169,67 @@ def safe_grid(r, cells):
     r.motion_gate()
     r.require_confirmation(
         "Confirme MOTION_MODE=1 configurado manualmente en el robot, "
-        "GEOMETRY_CONFIGURED, ORIENTATION_CONFIGURED y Z_SAFE verificados físicamente; "
+        "Assignments P1/P3/P7/P9 verificados; Pn_UP usa Tool Z -40 mm; "
         "parada física disponible. El PC no cambia estos parámetros"
     )
     client = r.connect()
     try:
         for cell in cells:
-            r.require_confirmation(f"Autoriza movimiento a CELL{cell} a altura segura y acuse COMMAND0")
+            r.require_confirmation(f"Autoriza movimiento a CELL{cell} (P{cell}_UP) y acuse COMMAND0")
             handshake(r, client, cell)
-            if not r.confirm(f"¿Robot terminó sobre CELL{cell} a altura segura?"):
+            if not r.confirm(f"¿Robot terminó sobre CELL{cell} en P{cell}_UP sin descenso?"):
                 raise RuntimeError("Operator rejected physical position")
     finally:
         client.close()
 
 
 def robotiq(r):
-    r.current_observed.update(robotiq_configured=False, model="unknown", urcap_version="unknown")
-    raise Blocked("Integración Robotiq pendiente: modelo/URCap e initialize/open/close sin implementar")
+    r.current_observed.update(robotiq_configured=False, evidence="operator_confirmation")
+    r.require_confirmation("Confirme que el programa PolyScope incluye las definiciones rq_* del URCap Robotiq instalado")
+    r.require_confirmation("Confirme que activación y open/close Robotiq fueron comprobados físicamente sin error; este paso no mueve el brazo")
+    r.current_observed.update(robotiq_configured=True, open_close_verified=True)
 
 
-def pick_place(r):
-    r.current_observed.update(robotiq_configured=False, physical_poses_verified=False)
-    raise Blocked("Sin integración Robotiq real ni poses físicas verificadas; no se ejecuta pick/place/end-to-end")
+def pick(r):
+    r.current_observed.update(pick_verified=False, evidence="operator_confirmation")
+    r.require_confirmation("Confirme Assignments P_PICK/P_HOME y aproximación Tool Z -40 mm verificados en PolyScope")
+    r.require_confirmation("Confirme ensayo manual ya realizado: PICK + close + retract a P_PICK_UP, con ficha agarrada y sin colisión")
+    r.current_observed.update(pick_verified=True, close_retract_verified=True)
+    r.current_comments.append("Evidencia manual; no se envió COMMAND ni existe un comando PICK separado")
+
+
+def pick_place(r, cells):
+    r.motion_gate()
+    r.require_confirmation(
+        "Confirme MOTION_MODE=2 en el robot, Assignments P1/P3/P7/P9/P_PICK/P_HOME, "
+        "C8-C11 verificados, Robotiq cargado y parada física disponible; el PC no cambia el modo"
+    )
+    client = r.connect()
+    try:
+        for cell in cells:
+            r.require_confirmation(
+                f"Confirme CELL{cell} libre, ficha disponible en PICK y zona sin manos; "
+                f"autoriza COMMAND{cell}: pick → place CELL{cell} → HOME y acuse COMMAND0"
+            )
+            handshake(r, client, cell)
+            if not r.confirm(f"¿La ficha quedó físicamente en CELL{cell} y el robot retornó a P_HOME?"):
+                raise RuntimeError("Operator rejected physical placement")
+            r.current_observed.setdefault("placements_verified", []).append(cell)
+    finally:
+        client.close()
+
+
+def end_to_end(r):
+    r.current_observed.update(runtime_test_executed=False, prerequisites_verified=False)
+    r.require_confirmation("Confirme evidencia vigente C1-C13, tablero vacío y estable, suministro de fichas y parada física disponible")
+    r.require_confirmation("Confirme MOTION_MODE=2, seis Assignments vigentes y cliente de commissioning exclusivo; cerrar otros clientes Modbus")
+    r.current_observed.update(prerequisites_verified=True,
+                              pending="runtime_vision_game_acceptance")
+    raise Blocked(
+        "C14: precondiciones registradas; pendiente adaptar el procedimiento de partida con "
+        "runtime/visión/juego y verificar jugadas humanas, colocaciones y fin de partida. "
+        "No se ejecutó una partida ni se enviaron comandos"
+    )
 
 
 STEPS = {
@@ -201,7 +240,8 @@ STEPS = {
     "C7": ("MODE0 HANDSHAKE", mode0),
     "C8": ("CELL5 SAFE", lambda r: safe_grid(r, [5])),
     "C9": ("GRID SAFE", lambda r: safe_grid(r, range(1, 10))),
-    "C10": ("ROBOTIQ", robotiq), "C11": ("PICK", pick_place),
-    "C12": ("PLACE CELL5", pick_place), "C13": ("PLACE OTHER CELLS", pick_place),
-    "C14": ("END-TO-END", pick_place),
+    "C10": ("ROBOTIQ", robotiq), "C11": ("PICK", pick),
+    "C12": ("PLACE CELL5", lambda r: pick_place(r, [5])),
+    "C13": ("PLACE OTHER CELLS", lambda r: pick_place(r, [1, 3, 7, 9, 2, 4, 6, 8])),
+    "C14": ("END-TO-END", end_to_end),
 }

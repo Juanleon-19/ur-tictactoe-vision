@@ -1,5 +1,7 @@
 # UR Tic-Tac-Toe V1 controller
-# STATUS: PREPARED FOR PHYSICAL VALIDATION - NOT PHYSICALLY VALIDATED
+# Taught-feature motion integrated; full controller acceptance pending.
+# Use the validated Installation/TCP, known initial state and physical stop.
+# A raised destination alone does not certify the joint transfer path.
 
 def triqui_controller():
   # Existing V1 Modbus contract. Do not add registers here.
@@ -14,192 +16,103 @@ def triqui_controller():
   # 0 = NO MOTION, 1 = SAFE GRID ONLY, 2 = PICK AND PLACE.
   global MOTION_MODE = 0
 
-  # Measured board: 60 mm cell + 5.5 mm separation = 65.5 mm pitch.
-  # Teach TABLERO origin at cell 1, +X toward cell 3, +Y toward cell 7.
-  global GRID_DX = 0.0655
-  global GRID_DY = 0.0655
-  global CELL1_X = 0.0
-  global CELL1_Y = 0.0
+  # CB3 / PolyScope 3.14: Assignment Nodes must supply these base-frame poses:
+  # P1, P3, P7, P9 (actual placement), P_PICK (pickup), P_HOME (HOME/WAIT).
+  # No feature symbols are resolved here. Re-run Assignments after reteaching.
+  # Include the installed Robotiq URCap definitions in the PolyScope program.
+  # +Tool Z lowers this validated TCP; -Tool Z raises it by 40 mm.
+  global APPROACH_DZ = -0.040
+  global JOINT_A = 0.20
+  global JOINT_V = 0.10
+  global LINEAR_A = 0.05
+  global LINEAR_V = 0.02
+  global gripper_initialized = False
 
-  # Manual commissioning gates. No flag is an automatic safety assessment.
-  global GEOMETRY_CONFIGURED = False
-  global ORIENTATION_CONFIGURED = False
-  global PICK_CONFIGURED = False
-  global ROBOTIQ_CONFIGURED = False
-  global MOTION_CONFIGURED = False
-
-  # Empty numeric lists mean UNTAUGHT, not zero poses.
-  # Populate only on the robot/local copy after teaching; do not commit poses.
-  # TABLERO_VALUES: six components of the actual Installation Plane TABLERO.
-  # After verifying symbol availability, replace [] with:
-  # [TABLERO[0], TABLERO[1], TABLERO[2], TABLERO[3], TABLERO[4], TABLERO[5]]
-  global TABLERO_VALUES = []
-  # One measured value per list, in metres relative to TABLERO's +Z.
-  global Z_SAFE = []
-  global Z_PLACE = []
-  # [CELL_RX, CELL_RY, CELL_RZ]: TCP rotation vector relative to TABLERO, radians.
-  # Teach TCP orientation, then derive it with pose_trans(pose_inv(TABLERO),
-  # taught_tcp_pose_in_base); copy its last three components here.
-  global CELL_ORIENTATION = []
-  # Six taught TCP pose components [x,y,z,rx,ry,rz] in the ROBOT BASE frame.
-  # HOME is also WAIT. PICK is a single fixed feeder point.
-  global HOME = []
-  global PICK_APPROACH = []
-  global PICK = []
-  global PICK_EXIT = []
-  # [joint acceleration rad/s^2, joint speed rad/s], both physically validated.
-  global JOINT_MOTION = []
-  # [linear acceleration m/s^2, linear speed m/s], both physically validated.
-  global LINEAR_MOTION = []
-
-  def taught_pose(values):
-    # Call only after length/configuration validation.
-    return p[values[0], values[1], values[2], values[3], values[4], values[5]]
-  end
-
-  def cell_relative_pose(cell, z):
+  def interpolated_cell_pose(cell):
     local row = floor((cell - 1) / 3)
-    local column = cell - 1 - 3 * row
-    local CELL_RX = CELL_ORIENTATION[0]
-    local CELL_RY = CELL_ORIENTATION[1]
-    local CELL_RZ = CELL_ORIENTATION[2]
-    return p[CELL1_X + column * GRID_DX,
-             CELL1_Y + row * GRID_DY,
-             z, CELL_RX, CELL_RY, CELL_RZ]
+    local col = (cell - 1) - row * 3
+    local u = col / 2.0
+    local v = row / 2.0
+    local x = (1-u)*(1-v)*P1[0] + u*(1-v)*P3[0] + (1-u)*v*P7[0] + u*v*P9[0]
+    local y = (1-u)*(1-v)*P1[1] + u*(1-v)*P3[1] + (1-u)*v*P7[1] + u*v*P9[1]
+    local z = (1-u)*(1-v)*P1[2] + u*(1-v)*P3[2] + (1-u)*v*P7[2] + u*v*P9[2]
+    return p[x, y, z, P1[3], P1[4], P1[5]]
   end
 
-  def safe_grid_configured():
-    if ((GEOMETRY_CONFIGURED == False) or (ORIENTATION_CONFIGURED == False)):
-      return False
-    end
-    if (MOTION_CONFIGURED == False):
-      return False
-    end
-    if ((length(TABLERO_VALUES) != 6) or (length(Z_SAFE) != 1)):
-      return False
-    end
-    if ((length(CELL_ORIENTATION) != 3) or (length(JOINT_MOTION) != 2)):
-      return False
-    end
-    if ((Z_SAFE[0] <= 0) or (JOINT_MOTION[0] <= 0) or (JOINT_MOTION[1] <= 0)):
-      return False
-    end
-    return True
+  # Mode0 does not evaluate any pose or initialize/operate the gripper.
+  if ((MOTION_MODE == 1) or (MOTION_MODE == 2)):
+    global P2 = interpolated_cell_pose(2)
+    global P4 = interpolated_cell_pose(4)
+    global P5 = interpolated_cell_pose(5)
+    global P6 = interpolated_cell_pose(6)
+    global P8 = interpolated_cell_pose(8)
+    # Preserve corner XYZ, normalize their orientation to P1 too.
+    global P3 = interpolated_cell_pose(3)
+    global P7 = interpolated_cell_pose(7)
+    global P9 = interpolated_cell_pose(9)
   end
 
-  def pick_place_configured():
-    if (safe_grid_configured() == False):
-      return False
+  def selected_cell_pose(cell):
+    if (cell == 1):
+      return P1
+    elif (cell == 2):
+      return P2
+    elif (cell == 3):
+      return P3
+    elif (cell == 4):
+      return P4
+    elif (cell == 5):
+      return P5
+    elif (cell == 6):
+      return P6
+    elif (cell == 7):
+      return P7
+    elif (cell == 8):
+      return P8
+    elif (cell == 9):
+      return P9
+    else:
+      textmsg("Invalid CELL", cell)
+      halt
     end
-    if ((PICK_CONFIGURED == False) or (ROBOTIQ_CONFIGURED == False)):
-      return False
-    end
-    if ((length(HOME) != 6) or (length(PICK_APPROACH) != 6)):
-      return False
-    end
-    if ((length(PICK) != 6) or (length(PICK_EXIT) != 6)):
-      return False
-    end
-    if ((length(Z_PLACE) != 1) or (length(LINEAR_MOTION) != 2)):
-      return False
-    end
-    if ((Z_PLACE[0] >= Z_SAFE[0]) or (LINEAR_MOTION[0] <= 0) or (LINEAR_MOTION[1] <= 0)):
-      return False
-    end
-    return True
   end
 
-  # The three gripper_* adapters fully isolate Mode 2 from Robotiq integration.
-  # Option A: use rq_* functions supplied by the verified installed URCap.
-  # Option B: use wrappers/subprograms from the matching Robotiq template,
-  # loading rq_script.script/subprograms if required by that CB3 installation.
-  # Verify model, version, signatures and generated definitions before choosing.
-  # Change only these adapters; Mode 2 must not depend on option A or B.
   def gripper_initialize():
-    if (ROBOTIQ_CONFIGURED == False):
-      return False
+    # Activate only on the first Mode2 cycle of this program execution.
+    if (gripper_initialized == False):
+      rq_activate_and_wait()
+      global gripper_initialized = True
     end
-    # Planned URCap adapter, NOT executable until model/version/signatures and
-    # generated program definitions have been checked on the installed URCap:
-    # rq_reset()
-    # rq_activate_and_wait()
-    # Verify activation/fault feedback, then return True on verified success.
-    textmsg("Robotiq initialization adapter not commissioned")
-    return False
-  end
-
-  def gripper_open():
-    if (ROBOTIQ_CONFIGURED == False):
-      return False
-    end
-    # Planned after URCap verification: rq_open_and_wait()
-    # Verify release/open completion before returning True.
-    textmsg("Robotiq open adapter not commissioned")
-    return False
-  end
-
-  def gripper_close():
-    if (ROBOTIQ_CONFIGURED == False):
-      return False
-    end
-    # Planned after URCap verification: rq_close_and_wait()
-    # Verify object grasp/fault feedback before returning True.
-    # Completion alone is not proof that a piece was grasped.
-    textmsg("Robotiq close adapter not commissioned")
-    return False
-  end
-
-  def take_robot_piece():
-    # Caller has checked all pick/place gates; no Python XYZ input.
-    movej(get_inverse_kin(taught_pose(PICK_APPROACH)),
-          a=JOINT_MOTION[0], v=JOINT_MOTION[1])
-    if (gripper_open() == False):
-      return False
-    end
-    movel(taught_pose(PICK), a=LINEAR_MOTION[0], v=LINEAR_MOTION[1])
-    if (gripper_close() == False):
-      return False
-    end
-    movel(taught_pose(PICK_EXIT), a=LINEAR_MOTION[0], v=LINEAR_MOTION[1])
-    return True
   end
 
   def move_to_cell_safe(cell):
-    if (safe_grid_configured() == False):
-      textmsg("SAFE GRID blocked: teach and validate geometry/orientation/motion")
-      return False
-    end
-    local TABLERO = taught_pose(TABLERO_VALUES)
-    local cell_safe = pose_trans(TABLERO, cell_relative_pose(cell, Z_SAFE[0]))
+    local Pn = selected_cell_pose(cell)
+    local Pn_UP = pose_trans(Pn, p[0,0,APPROACH_DZ,0,0,0])
     textmsg("SAFE GRID cell", cell)
-    textmsg("SAFE GRID pose", cell_safe)
-    movej(get_inverse_kin(cell_safe), a=JOINT_MOTION[0], v=JOINT_MOTION[1])
+    textmsg("SAFE GRID pose", Pn_UP)
+    movej(get_inverse_kin(Pn_UP), a=JOINT_A, v=JOINT_V)
     return True
   end
 
   def prepare_pick_and_place(cell):
-    if (pick_place_configured() == False):
-      textmsg("PICK AND PLACE blocked: configuration incomplete")
+    if ((cell < 1) or (cell > 9) or (cell != floor(cell))):
+      textmsg("Invalid CELL", cell)
       return False
     end
-    # Fail before any arm motion if the Robotiq adapter is still unimplemented.
-    if (gripper_initialize() == False):
-      return False
-    end
-    local TABLERO = taught_pose(TABLERO_VALUES)
-    local cell_safe = pose_trans(TABLERO, cell_relative_pose(cell, Z_SAFE[0]))
-    local cell_place = pose_trans(TABLERO, cell_relative_pose(cell, Z_PLACE[0]))
-    movej(get_inverse_kin(taught_pose(HOME)), a=JOINT_MOTION[0], v=JOINT_MOTION[1])
-    if (take_robot_piece() == False):
-      return False
-    end
-    movej(get_inverse_kin(cell_safe), a=JOINT_MOTION[0], v=JOINT_MOTION[1])
-    movel(cell_place, a=LINEAR_MOTION[0], v=LINEAR_MOTION[1])
-    if (gripper_open() == False):
-      return False
-    end
-    movel(cell_safe, a=LINEAR_MOTION[0], v=LINEAR_MOTION[1])
-    movej(get_inverse_kin(taught_pose(HOME)), a=JOINT_MOTION[0], v=JOINT_MOTION[1])
+    local P_PICK_UP = pose_trans(P_PICK, p[0,0,APPROACH_DZ,0,0,0])
+    gripper_initialize()
+    rq_open_and_wait()
+    movej(get_inverse_kin(P_PICK_UP), a=JOINT_A, v=JOINT_V)
+    movel(P_PICK, a=LINEAR_A, v=LINEAR_V)
+    rq_close_and_wait()
+    movel(P_PICK_UP, a=LINEAR_A, v=LINEAR_V)
+    local Pn = selected_cell_pose(cell)
+    local Pn_UP = pose_trans(Pn, p[0,0,APPROACH_DZ,0,0,0])
+    movej(get_inverse_kin(Pn_UP), a=JOINT_A, v=JOINT_V)
+    movel(Pn, a=LINEAR_A, v=LINEAR_V)
+    rq_open_and_wait()
+    movel(Pn_UP, a=LINEAR_A, v=LINEAR_V)
+    movej(get_inverse_kin(P_HOME), a=JOINT_A, v=JOINT_V)
     return True
   end
 

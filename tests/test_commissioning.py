@@ -455,12 +455,33 @@ def test_absent_camera_fails_without_crash_and_closes(make_runner):
     assert missing.closed
 
 
-@pytest.mark.parametrize("step", [f"C{i}" for i in range(10, 15)])
-def test_unimplemented_physical_steps_stay_blocked_even_with_motion(make_runner, step):
-    r = make_runner(allow_motion=True)
+@pytest.mark.parametrize("step", ["C10", "C11"])
+def test_operator_evidence_is_available_without_robot_io(make_runner, step):
+    def forbidden(*args, **kwargs):
+        pytest.fail("Manual evidence must not connect hardware")
+    r = make_runner(modbus_factory=forbidden, camera_factory=forbidden)
+    result = r.run([step]).results[0]
+    assert result.status == "PASS"
+    assert result.observed["evidence"] == "operator_confirmation"
+    assert len(result.comments) >= 2
+    assert not r.fake_robot.writes
+
+
+@pytest.mark.parametrize("step", ["C10", "C11"])
+def test_manual_evidence_requires_all_confirmations(make_runner, step):
+    r = make_runner(["YES", "no"])
     assert r.run([step]).results[0].status == "BLOCKED"
     assert not r.fake_robot.writes
-    assert not r.fake_cameras
+
+
+def test_c14_records_specific_runtime_preconditions_without_claiming_execution(make_runner):
+    r = make_runner()
+    result = r.run(["C14"]).results[0]
+    assert result.status == "BLOCKED"
+    assert result.observed["prerequisites_verified"] is True
+    assert result.observed["runtime_test_executed"] is False
+    assert result.observed["pending"] == "runtime_vision_game_acceptance"
+    assert not r.fake_robot.writes
 
 
 def test_json_report_is_valid_and_has_safe_configuration(make_runner, tmp_path):
@@ -472,7 +493,7 @@ def test_json_report_is_valid_and_has_safe_configuration(make_runner, tmp_path):
     assert path.with_suffix(".txt").is_file()
     assert data["software_commit_sha"]
     assert data["timestamp"]
-    assert [item["status"] for item in data["results"]] == ["PASS", "PASS", "BLOCKED"]
+    assert [item["status"] for item in data["results"]] == ["PASS", "PASS", "PASS"]
     assert "vision_config_path" not in data["configuration"]
     assert "pc_ip" not in data["configuration"]
     assert all(item["duration_seconds"] >= 0 for item in data["results"])
@@ -766,3 +787,80 @@ def test_c5_recovery_must_be_empty_and_ready(make_runner, missing):
     assert len(result.observed["observations"]) == 3
     assert any(value != "FREE" for value in result.observed["observations"][-1]["cells"].values())
     assert r.fake_cameras[0].open_count == r.fake_cameras[0].close_count == 1
+
+
+@pytest.mark.parametrize("step", ["C12", "C13"])
+def test_placement_requires_flag_before_io(make_runner, step):
+    def forbidden(*args, **kwargs):
+        pytest.fail("Motion flag must precede I/O")
+    r = make_runner(ask=forbidden, modbus_factory=forbidden)
+    assert r.run([step]).results[0].status == "BLOCKED"
+
+
+@pytest.mark.parametrize("step,cells", [("C12", [5]), ("C13", [1,3,7,9,2,4,6,8])])
+def test_placement_handshake_and_individual_confirmations(make_runner, step, cells):
+    r = make_runner(allow_motion=True)
+    confirmations = []
+    def ask(message):
+        confirmations.append((message, list(r.fake_robot.writes)))
+        return "YES"
+    r.ask = ask
+    result = r.run([step]).results[0]
+    assert result.status == "PASS"
+    assert r.fake_robot.writes == [n for cell in cells for n in (cell, 0)]
+    assert result.observed["placements_verified"] == cells
+    assert len(confirmations) == 1 + 2 * len(cells)
+    for i, cell in enumerate(cells):
+        assert f"autoriza COMMAND{cell}" in confirmations[1 + 2*i][0]
+        assert confirmations[1 + 2*i][1] == [n for previous in cells[:i] for n in (previous, 0)]
+        trace = result.observed["handshakes"][i]
+        assert [t["status"] for t in trace["transitions"]][:3] == [0, 1, 2]
+        assert trace["transitions"][-1]["status"] == 0
+        assert trace["done_held_seconds"] == r.hold
+    assert r.fake_robot.closed
+
+
+@pytest.mark.parametrize("step", ["C12", "C13"])
+@pytest.mark.parametrize("answers,status,writes", [
+    (["no"], "BLOCKED", []), (["YES", "no"], "BLOCKED", []),
+    (["YES", "ABORT"], "SKIPPED", []), (["YES", "YES", "no"], "FAIL", None),
+])
+def test_placement_stops_on_rejection_or_abort(make_runner, step, answers, status, writes):
+    r = make_runner(answers, allow_motion=True)
+    results = r.run([step] if status == "BLOCKED" else [step, "C12"]).results
+    assert results[0].status == status
+    if writes is None:
+        writes = [5 if step == "C12" else 1, 0]
+    assert r.fake_robot.writes == writes
+    if status in ("SKIPPED", "FAIL"):
+        assert results[1].status == "SKIPPED"
+    assert r.fake_robot.closed or answers == ["no"]
+
+
+def test_c13_can_decline_next_cell_without_sending_it(make_runner):
+    r = make_runner(["YES", "YES", "YES", "no"], allow_motion=True)
+    assert r.run(["C13"]).results[0].status == "BLOCKED"
+    assert r.fake_robot.writes == [1, 0]
+    assert r.fake_robot.closed
+
+
+@pytest.mark.parametrize("step", ["C12", "C13"])
+def test_placement_failure_stops_session_without_reset(make_runner, step):
+    r = make_runner(allow_motion=True)
+    r.fake_robot.read_status = lambda: 0
+    results = r.run([step, "C12"]).results
+    assert [x.status for x in results] == ["FAIL", "SKIPPED"]
+    assert r.fake_robot.writes == [5 if step == "C12" else 1]
+    assert r.fake_robot.closed
+
+
+@pytest.mark.parametrize("step", ["C8", "C9"])
+def test_safe_grid_prompts_use_assignment_architecture(make_runner, step):
+    r = make_runner(allow_motion=True)
+    result = r.run([step]).results[0]
+    comments = " ".join(result.comments)
+    assert result.status == "PASS"
+    assert "Assignments P1/P3/P7/P9" in comments
+    assert "Tool Z -40 mm" in comments
+    assert "P5_UP" in comments
+    assert not any(old in comments for old in ("TABLERO", "GEOMETRY_CONFIGURED", "ORIENTATION_CONFIGURED", "Z_SAFE"))

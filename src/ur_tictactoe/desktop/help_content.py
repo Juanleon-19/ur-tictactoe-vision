@@ -25,11 +25,11 @@ STEPS = {
     "C7": "Mode0: handshake; NO debe mover robot. Confirmación del operador.",
     "C8": "CELL5 a altura segura: movimiento con autorización y confirmación.",
     "C9": "Cuadrícula: confirmar cada movimiento seguro y su resultado.",
-    "C10": "Robotiq: NO DISPONIBLE; modelo, URCap y adaptador pendientes.",
-    "C11": "PICK: NO DISPONIBLE en el harness.",
-    "C12": "PLACE CELL5: NO DISPONIBLE en el harness.",
-    "C13": "PLACE otras celdas: NO DISPONIBLE en el harness.",
-    "C14": "Juego físico end-to-end: NO DISPONIBLE en el harness.",
+    "C10": "Robotiq: confirmar URCap cargado y activación/open/close comprobados.",
+    "C11": "PICK: confirmar ensayo manual de recogida, cierre y retirada.",
+    "C12": "PLACE CELL5: Mode2, COMMAND5 y confirmación de ficha y HOME.",
+    "C13": "PLACE otras celdas: Mode2, autorización y evaluación individual.",
+    "C14": "Juego físico end-to-end: precondiciones; aceptación runtime/visión/juego pendiente.",
 }
 
 
@@ -78,7 +78,7 @@ def help_text(section: str, snapshot, report: CommissioningStatus | None) -> str
                      ("Robotiq", "C10"), ("Juego físico", "C14"))
         return "Checklist según último reporte (no combina ensayos anteriores):\n\n" + "\n".join(
             f"{label}: " + ("PASS" if results.get(step) == "PASS" else
-                           "NO DISPONIBLE" if step in ("C10", "C14") else "PENDIENTE")
+                           "ACEPTACIÓN PENDIENTE" if step == "C14" else "PENDIENTE")
             for label, step in checklist
         ) + ("\n\nSin resultados de commissioning disponibles." if not report else
              "\n\nFAIL/BLOCKED/SKIPPED se muestran como pendientes; ver Commissioning para detalle.")
@@ -98,7 +98,8 @@ def help_text(section: str, snapshot, report: CommissioningStatus | None) -> str
                 "Verificar conectividad mediante C6 desde el harness.\n\n" + SAFETY)
     if section == "Commissioning":
         return (report_text(report) + "\n\nEjecutar desde harness de commissioning.\n"
-                "C1–C6: sin movimiento. C7: Mode0 sin movimiento. C8–C9: movimiento y confirmaciones.\n\n"
+                "C1–C6: sin movimiento. C7: Mode0 sin movimiento. C8–C9 y C12–C13: movimiento y confirmaciones. "
+                "C10–C11: evidencia manual. C14: precondiciones.\n\n"
                 + "\n".join(f"{step}: {description}" for step, description in STEPS.items()))
     return ("Robot Triqui · Pontificia Universidad Javeriana\n"
             "Python/OpenCV: visión y juego. PolyScope/UR: movimiento físico.\n"

@@ -64,5 +64,7 @@ def test_empty_history_and_procedures(tmp_path):
         assert all(content.values())
         risk = content["Nivel de riesgo"]
         assert risk == ("SIN MOVIMIENTO" if i <= 6 else "HANDSHAKE SIN MOVIMIENTO ESPERADO"
-                        if i == 7 else "MOVIMIENTO FÍSICO" if i <= 9 else "BLOQUEADO / PENDIENTE")
+                        if i == 7 else "MOVIMIENTO FÍSICO" if i in (8, 9, 12, 13)
+                        else "EVIDENCIA MANUAL / SIN I/O" if i in (10, 11)
+                        else "PRECONDICIONES / PENDIENTE")
     assert "sin reiniciar el observer" in procedure("C5")["Qué observar"]
