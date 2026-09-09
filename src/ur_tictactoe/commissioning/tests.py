@@ -169,18 +169,18 @@ def safe_grid(r, cells):
     r.motion_gate()
     r.require_confirmation(
         "Confirme MOTION_MODE=1 configurado manualmente en el robot, "
-        "Assignments P1/P3/P7/P9 verificados; Pn_UP usa Tool Z -40 mm; "
+        "Assignments P1/P3/P7/P9 verificados; Pn_UP usa Tool Z -60 mm; "
         "parada física disponible. El PC no cambia estos parámetros"
     )
-    client = r.connect()
-    try:
-        for cell in cells:
-            r.require_confirmation(f"Autoriza movimiento a CELL{cell} (P{cell}_UP) y acuse COMMAND0")
+    for cell in cells:
+        r.require_confirmation(f"Autoriza movimiento a CELL{cell} (P{cell}_UP) y acuse COMMAND0")
+        client = r.connect()
+        try:
             handshake(r, client, cell)
-            if not r.confirm(f"¿Robot terminó sobre CELL{cell} en P{cell}_UP sin descenso?"):
-                raise RuntimeError("Operator rejected physical position")
-    finally:
-        client.close()
+        finally:
+            client.close()
+        if not r.confirm(f"¿Robot terminó sobre CELL{cell} en P{cell}_UP sin descenso?"):
+            raise RuntimeError("Operator rejected physical position")
 
 
 def robotiq(r):
@@ -192,7 +192,7 @@ def robotiq(r):
 
 def pick(r):
     r.current_observed.update(pick_verified=False, evidence="operator_confirmation")
-    r.require_confirmation("Confirme Assignments P_PICK/P_HOME y aproximación Tool Z -40 mm verificados en PolyScope")
+    r.require_confirmation("Confirme Assignments P_PICK/P_HOME y aproximación Tool Z -60 mm verificados en PolyScope")
     r.require_confirmation("Confirme ensayo manual ya realizado: PICK + close + retract a P_PICK_UP, con ficha agarrada y sin colisión")
     r.current_observed.update(pick_verified=True, close_retract_verified=True)
     r.current_comments.append("Evidencia manual; no se envió COMMAND ni existe un comando PICK separado")
@@ -204,19 +204,19 @@ def pick_place(r, cells):
         "Confirme MOTION_MODE=2 en el robot, Assignments P1/P3/P7/P9/P_PICK/P_HOME, "
         "C8-C11 verificados, Robotiq cargado y parada física disponible; el PC no cambia el modo"
     )
-    client = r.connect()
-    try:
-        for cell in cells:
-            r.require_confirmation(
-                f"Confirme CELL{cell} libre, ficha disponible en PICK y zona sin manos; "
-                f"autoriza COMMAND{cell}: pick → place CELL{cell} → HOME y acuse COMMAND0"
-            )
+    for cell in cells:
+        r.require_confirmation(
+            f"Confirme CELL{cell} libre, ficha disponible en PICK y zona sin manos; "
+            f"autoriza COMMAND{cell}: pick → place CELL{cell} → HOME y acuse COMMAND0"
+        )
+        client = r.connect()
+        try:
             handshake(r, client, cell)
-            if not r.confirm(f"¿La ficha quedó físicamente en CELL{cell} y el robot retornó a P_HOME?"):
-                raise RuntimeError("Operator rejected physical placement")
-            r.current_observed.setdefault("placements_verified", []).append(cell)
-    finally:
-        client.close()
+        finally:
+            client.close()
+        if not r.confirm(f"¿La ficha quedó físicamente en CELL{cell} y el robot retornó a P_HOME?"):
+            raise RuntimeError("Operator rejected physical placement")
+        r.current_observed.setdefault("placements_verified", []).append(cell)
 
 
 def end_to_end(r):

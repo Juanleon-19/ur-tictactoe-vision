@@ -834,7 +834,7 @@ def test_placement_stops_on_rejection_or_abort(make_runner, step, answers, statu
     assert r.fake_robot.writes == writes
     if status in ("SKIPPED", "FAIL"):
         assert results[1].status == "SKIPPED"
-    assert r.fake_robot.closed or answers == ["no"]
+    assert r.fake_robot.closed == bool(writes)
 
 
 def test_c13_can_decline_next_cell_without_sending_it(make_runner):
@@ -861,6 +861,138 @@ def test_safe_grid_prompts_use_assignment_architecture(make_runner, step):
     comments = " ".join(result.comments)
     assert result.status == "PASS"
     assert "Assignments P1/P3/P7/P9" in comments
-    assert "Tool Z -40 mm" in comments
+    assert "Tool Z -60 mm" in comments
     assert "P5_UP" in comments
     assert not any(old in comments for old in ("TABLERO", "GEOMETRY_CONFIGURED", "ORIENTATION_CONFIGURED", "Z_SAFE"))
+
+
+@pytest.fixture
+def session_runner(make_runner):
+    """Separate, lifecycle-checked transports; operator pauses exceed idle time."""
+    def make(answers=None, failure=None):
+        from pymodbus.exceptions import ConnectionException
+        r = make_runner(allow_motion=True)
+        clients, prompts, events = [], [], []
+        responses = iter(answers) if answers is not None else None
+
+        class Session(Robot):
+            def __init__(self):
+                super().__init__()
+                self.active = False
+                self.connect_count = self.close_count = self.read_count = 0
+
+            def connect(self):
+                assert not any(client.active for client in clients)
+                self.active = True
+                self.connect_count += 1
+                self.connected_at = r.clock()
+                events.append("connect")
+
+            def read_status(self):
+                assert self.active
+                if self.read_count == 0:
+                    assert r.clock() == self.connected_at
+                    events.append("first_read")
+                self.read_count += 1
+                if failure == "first_read":
+                    raise ConnectionException("simulated connection loss")
+                if self.writes and failure == "after_command":
+                    raise ConnectionException("simulated connection loss")
+                if self.writes and failure == "interrupt":
+                    raise KeyboardInterrupt()
+                return super().read_status()
+
+            def write_command(self, cell):
+                assert self.active
+                super().write_command(cell)
+
+            def close(self):
+                assert self.active
+                self.active = False
+                self.close_count += 1
+                events.append("close")
+                super().close()
+
+        def factory(*args, **kwargs):
+            client = Session()
+            clients.append(client)
+            return client
+
+        def ask(message):
+            assert not any(client.active for client in clients), message
+            events.append("ask")
+            prompts.append(message)
+            r.sleep(60)  # Human delay must occur entirely outside the TCP session.
+            return next(responses) if responses is not None else "YES"
+
+        r.modbus_factory, r.ask = factory, ask
+        return r, clients, prompts, events
+    return make
+
+
+@pytest.mark.parametrize("step,cells", [
+    ("C8", [5]), ("C9", list(range(1, 10))),
+    ("C12", [5]), ("C13", [1,3,7,9,2,4,6,8]),
+])
+def test_each_authorized_cell_gets_fresh_session_without_operator_idle(session_runner, step, cells):
+    r, clients, prompts, events = session_runner()
+    result = r.run([step]).results[0]
+    assert result.status == "PASS", result
+    assert len(clients) == len({id(c) for c in clients}) == len(cells)
+    assert len(prompts) == 1 + 2 * len(cells)
+    assert events == ["ask"] + [event for _ in cells for event in
+                                ("ask", "connect", "first_read", "close", "ask")]
+    for client, cell in zip(clients, cells):
+        assert client.connect_count == client.close_count == 1
+        assert client.closed and not client.active
+        assert client.writes == [cell, 0]
+    for trace in result.observed["handshakes"]:
+        assert [t["status"] for t in trace["transitions"]][:3] == [0, 1, 2]
+        assert trace["transitions"][-1]["status"] == 0
+        assert trace["done_held_seconds"] == r.hold
+
+
+@pytest.mark.parametrize("step", ["C8", "C9", "C12", "C13"])
+@pytest.mark.parametrize("answer,status", [("no", "BLOCKED"), ("ABORT", "SKIPPED")])
+def test_motion_rejection_never_creates_session(session_runner, step, answer, status):
+    r, clients, _, events = session_runner(["YES", answer])
+    assert r.run([step]).results[0].status == status
+    assert not clients
+    assert events == ["ask", "ask"]
+
+
+@pytest.mark.parametrize("step", ["C8", "C9", "C12", "C13"])
+@pytest.mark.parametrize("failure", ["first_read", "after_command", "interrupt"])
+def test_handshake_failure_closes_session_before_stopping(session_runner, step, failure):
+    r, clients, prompts, events = session_runner(failure=failure)
+    results = r.run([step, "C6"]).results
+    assert [x.status for x in results] == ["SKIPPED" if failure == "interrupt" else "FAIL", "SKIPPED"]
+    assert len(clients) == 1
+    assert clients[0].connect_count == clients[0].close_count == 1
+    assert not clients[0].active
+    assert events[-1] == "close"
+    assert len(prompts) == 2  # No physical-result question after a failed handshake.
+    first_cell = 1 if step in ("C9", "C13") else 5
+    assert clients[0].writes == ([] if failure == "first_read" else [first_cell])
+    if failure == "first_read":
+        assert results[0].observed["handshakes"][0]["transitions"] == []
+        assert results[0].observed["error_type"] == "ConnectionException"
+
+
+@pytest.mark.parametrize("step", ["C6", "C7"])
+def test_c6_c7_session_and_contract_stay_unchanged(session_runner, step):
+    r, clients, _, events = session_runner()
+    result = r.run([step]).results[0]
+    assert result.status == "PASS"
+    assert len(clients) == 1
+    assert clients[0].connect_count == clients[0].close_count == 1
+    if step == "C6":
+        assert events == ["connect", "first_read", "close"]
+        assert clients[0].read_count == 1
+        assert clients[0].writes == []
+        assert result.observed["register"] == 129
+    else:
+        assert events == ["ask", "connect", "first_read", "close"]
+        assert clients[0].writes == [5, 0]
+        statuses = [t["status"] for t in result.observed["handshakes"][0]["transitions"]]
+        assert statuses[:3] == [0, 1, 2] and statuses[-1] == 0
