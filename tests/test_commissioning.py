@@ -27,15 +27,18 @@ class Clock:
 class Camera:
     def __init__(self, config):
         self.closed = False
+        self.open_count = self.close_count = self.read_count = 0
         self.effective_settings = CameraSettings(640, 480, 30)
 
     def open(self):
-        pass
+        self.open_count += 1
 
     def read(self):
+        self.read_count += 1
         return object()
 
     def close(self):
+        self.close_count += 1
         self.closed = True
 
 
@@ -605,3 +608,161 @@ def test_x_during_detection_cancels_runner_without_measurement(monkeypatch, make
     assert reads == [True]
     assert camera.closed
     assert "frames" not in results[0].observed
+
+
+@pytest.mark.parametrize("step", ["C1", "C2", "C3", "C4", "C5"])
+def test_camera_lifecycle_and_window_counts(make_runner, step):
+    r = make_runner()
+    result = r.run([step]).results[0]
+    assert result.status == "PASS"
+    assert len(r.fake_cameras) == 1
+    camera = r.fake_cameras[0]
+    assert camera.open_count == camera.close_count == 1
+    observations = result.observed.get("observations", [result.observed])
+    assert len(observations) == (3 if step in ("C4", "C5") else 1)
+    measured = sum(item["frames"] for item in observations)
+    extra = 9 if step in ("C4", "C5") else (1 if step == "C2" else 0)
+    assert camera.read_count == measured + extra
+
+
+@pytest.mark.parametrize("step", ["C4", "C5"])
+@pytest.mark.parametrize("answer, status", [("ABORT", "SKIPPED"), ("no", "BLOCKED")])
+@pytest.mark.parametrize("prompt", [2, 3])
+def test_shared_camera_closes_at_operator_exit(make_runner, step, answer, status, prompt):
+    r = make_runner(["YES"] * (prompt - 1) + [answer])
+    results = r.run([step, "C1"]).results
+    assert results[0].status == status
+    camera = r.fake_cameras[0]
+    assert camera.open_count == camera.close_count == 1
+    if answer == "ABORT":
+        assert results[1].status == "SKIPPED"
+        assert len(r.fake_cameras) == 1
+
+
+@pytest.mark.parametrize("step", ["C4", "C5"])
+@pytest.mark.parametrize("stage", ["camera_read", "aruco_detection", "observer"])
+def test_shared_camera_closes_on_later_window_exception(make_runner, step, stage):
+    r = make_runner()
+    ask = r.ask
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("private details")
+
+    def confirm(message):
+        answer = ask(message)
+        if len(r.current_observed.get("observations", [])) == 1:
+            if stage == "camera_read":
+                r.fake_cameras[0].read = fail
+            else:
+                setattr(processors[stage], "detect" if stage == "aruco_detection" else "update", fail)
+        return answer
+
+    processors = {}
+    for attribute, label in (("detector_factory", "aruco_detection"), ("observer_factory", "observer")):
+        factory = getattr(r, attribute)
+        def track(*args, factory=factory, label=label):
+            processors[label] = factory(*args)
+            return processors[label]
+        setattr(r, attribute, track)
+    r.ask = confirm
+    result = r.run([step]).results[0]
+    assert result.status == "FAIL"
+    assert result.observed["failure_stage"] == stage
+    assert "private details" not in str(result)
+    assert len(r.fake_cameras) == 1
+    assert r.fake_cameras[0].open_count == r.fake_cameras[0].close_count == 1
+
+
+@pytest.mark.parametrize("step", ["C4", "C5"])
+def test_shared_windows_keep_processors_and_exclude_stale_frames(make_runner, step):
+    r = make_runner()
+    observers, detectors, updates, detected = [], [], [], []
+    observer_factory, detector_factory = r.observer_factory, r.detector_factory
+    camera_factory = r.camera_factory
+    flush_reads = []
+
+    def make_observer(config):
+        observer = observer_factory(config)
+        update = observer.update
+        def record(visible, **kwargs):
+            updates.append((len(r.current_observed.get("observations", [])), kwargs["timestamp"]))
+            return update(visible, **kwargs)
+        observer.update = record
+        observers.append(observer)
+        return observer
+
+    def make_detector(dictionary, profile):
+        detector = detector_factory(dictionary, profile)
+        detect = detector.detect
+        def record(frame):
+            assert frame != "stale"
+            detected.append(frame)
+            return detect(frame)
+        detector.detect = record
+        detectors.append((dictionary, profile, detector))
+        return detector
+
+    def make_camera(config):
+        camera = camera_factory(config)
+        read = camera.read
+        per_window = {}
+        def buffered_read():
+            frame = read()
+            index = len(r.current_observed.get("observations", []))
+            per_window[index] = per_window.get(index, 0) + 1
+            if per_window[index] <= 3:
+                flush_reads.append(index)
+                r.sleep(0.02)
+                return "stale"
+            return frame
+        camera.read = buffered_read
+        return camera
+
+    r.observer_factory, r.detector_factory, r.camera_factory = make_observer, make_detector, make_camera
+    result = r.run([step]).results[0]
+    assert result.status == "PASS", result
+    assert len(observers) == len(detectors) == 1
+    assert detectors[0][:2] == (r.vision_config.aruco.dictionary, r.app_config.aruco_profile)
+    assert flush_reads == [0] * 3 + [1] * 3 + [2] * 3
+    observations = result.observed["observations"]
+    assert len(detected) == len(updates) == sum(item["frames"] for item in observations)
+    for index, item in enumerate(observations):
+        assert sum(window == index for window, _ in updates) == item["frames"]
+        assert r.window <= item["capture_elapsed_seconds"] < r.window + 0.011
+        assert item["measured_fps"] == pytest.approx(item["frames"] / item["capture_elapsed_seconds"])
+    assert result.duration_seconds == pytest.approx(
+        sum(item["capture_elapsed_seconds"] for item in observations) + 0.18)
+    if step == "C5":
+        assert all(value == "FREE" for value in observations[2]["cells"].values())
+        assert any(value < 100 for value in observations[1]["visibility_percent"].values())
+
+
+@pytest.mark.parametrize("prompt", [1, 2, 3])
+def test_c4_rejects_wrong_occupancy_at_each_window(make_runner, prompt):
+    r = make_runner()
+    ask, calls = r.ask, []
+    def wrong_board(message):
+        answer = ask(message)
+        calls.append(message)
+        if len(calls) == prompt:
+            r.fake_visible.discard(11)  # Unexpected occupied CELL2.
+        return answer
+    r.ask = wrong_board
+    result = r.run(["C4"]).results[0]
+    assert result.status == "FAIL"
+    assert len(result.observed["observations"]) == prompt
+    assert r.fake_cameras[0].open_count == r.fake_cameras[0].close_count == 1
+
+
+@pytest.mark.parametrize("missing", [{14}, set(range(10, 19))])
+def test_c5_recovery_must_be_empty_and_ready(make_runner, missing):
+    r = make_runner()
+    def emit(message):
+        if message.startswith("Recuperaci"):
+            r.fake_visible.difference_update(missing)
+    r.emit = emit
+    result = r.run(["C5"]).results[0]
+    assert result.status == "FAIL"
+    assert len(result.observed["observations"]) == 3
+    assert any(value != "FREE" for value in result.observed["observations"][-1]["cells"].values())
+    assert r.fake_cameras[0].open_count == r.fake_cameras[0].close_count == 1

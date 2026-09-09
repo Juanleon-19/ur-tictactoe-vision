@@ -50,8 +50,8 @@ class _ReadOnlyBoundary:
         raise RuntimeError("C3 must not perform robot I/O")
 
 
-def exact_board(r, expected, observer=None):
-    observer, values = r.sample(observer=observer)
+def exact_board(r, expected, observer=None, *, sample=None):
+    observer, values = (sample or r.sample)(observer=observer)
     r.current_observed.setdefault("observations", []).append(values)
     state = observer.state
     if not state.ready or state.uncertain_cells or state.occupied_cells != frozenset(expected):
@@ -72,25 +72,27 @@ def empty_board(r):
 
 def occupancy(r):
     r.require_confirmation("Retire todas las fichas y manos para establecer la referencia vacía")
-    observer = exact_board(r, set())
-    r.require_confirmation("Ponga una ficha en CELL5 y retire la mano")
-    observer = exact_board(r, {5}, observer)
-    r.require_confirmation("Deje exactamente fichas en CELL1, CELL5 y CELL9; retire la mano")
-    exact_board(r, {1, 5, 9}, observer)
+    with r.camera_samples() as sample:
+        observer = exact_board(r, set(), sample=sample)
+        r.require_confirmation("Ponga una ficha en CELL5 y retire la mano")
+        observer = exact_board(r, {5}, observer, sample=sample)
+        r.require_confirmation("Deje exactamente fichas en CELL1, CELL5 y CELL9; retire la mano")
+        exact_board(r, {1, 5, 9}, observer, sample=sample)
 
 
 def occlusion(r):
     r.require_confirmation("Retire todas las fichas y manos; establecer tablero vacío")
-    observer = exact_board(r, set())
-    r.require_confirmation("Tras responder YES, pase la mano brevemente durante la captura y retírela")
-    observer, values = r.sample(observer=observer)
-    r.current_observed.setdefault("observations", []).append(values)
-    if all(percent == 100 for percent in values["visibility_percent"].values()):
-        raise Blocked("No se observó pérdida de marcadores durante el gesto; repetir C5")
-    # Capture a separate recovery window; do not reset temporal history.
-    r.emit("Recuperación: mantenga el tablero vacío y sin manos.")
-    exact_board(r, set(), observer)
-    r.require_confirmation("¿Pasó la mano brevemente durante la ventana de captura?")
+    with r.camera_samples() as sample:
+        observer = exact_board(r, set(), sample=sample)
+        r.require_confirmation("Tras responder YES, pase la mano brevemente durante la captura y retírela")
+        observer, values = sample(observer=observer)
+        r.current_observed.setdefault("observations", []).append(values)
+        if all(percent == 100 for percent in values["visibility_percent"].values()):
+            raise Blocked("No se observó pérdida de marcadores durante el gesto; repetir C5")
+        # Capture a separate recovery window; do not reset temporal history.
+        r.emit("Recuperación: mantenga el tablero vacío y sin manos.")
+        exact_board(r, set(), observer, sample=sample)
+        r.require_confirmation("¿Pasó la mano brevemente durante la ventana de captura?")
 
 
 def connectivity(r):

@@ -2,6 +2,7 @@
 
 from dataclasses import asdict
 from contextlib import contextmanager
+from functools import partial
 import math
 import time
 
@@ -181,41 +182,64 @@ class Runner:
             observer = observer or self.observer_factory(self.vision_config.observer)
         with self.stage("aruco_detection"):
             detector = self.detector_factory(self.vision_config.aruco.dictionary, self.app_config.aruco_profile)
-        counts = dict.fromkeys(CELL_IDS, 0)
-        frames = 0
         with self.opened_camera() as (camera, settings):
             if preview:
                 self.preview(camera, detector)
-            duration = self.window if seconds is None else seconds
-            started = self.clock()
-            while self.clock() - started < duration:
+            return self._sample_open_camera(camera, settings, detector,
+                                            observer=observer, seconds=seconds)
+
+    @contextmanager
+    def camera_samples(self):
+        """C4/C5: one camera and detector across operator-confirmed windows."""
+        self.check_abort()
+        with self.stage("aruco_detection"):
+            detector = self.detector_factory(self.vision_config.aruco.dictionary, self.app_config.aruco_profile)
+        with self.opened_camera() as (camera, settings):
+            yield partial(self._sample_open_camera, camera, settings, detector, flush=True)
+
+    def _sample_open_camera(self, camera, settings, detector, *, observer=None,
+                            seconds=None, flush=False):
+        self.check_abort()
+        with self.stage("observer"):
+            observer = observer or self.observer_factory(self.vision_config.observer)
+        if flush:
+            # Discard buffered frames without detection, temporal updates or timing.
+            for _ in range(3):
                 self.check_abort()
                 with self.stage("camera_read"):
-                    frame = camera.read()
-                with self.stage("aruco_detection"):
-                    visible = detector.detect(frame).id_set.intersection(CELL_IDS)
-                with self.stage("observer"):
-                    observer.update(visible, timestamp=self.clock())
-                for marker in visible:
-                    counts[marker] += 1
-                frames += 1
-                self.sleep(0.01)
+                    camera.read()
+        counts = dict.fromkeys(CELL_IDS, 0)
+        frames = 0
+        duration = self.window if seconds is None else seconds
+        started = self.clock()
+        while self.clock() - started < duration:
+            self.check_abort()
             with self.stage("camera_read"):
-                if not frames:
-                    raise RuntimeError("No frames captured")
-            elapsed = self.clock() - started
-            return observer, {
-                "resolution": [settings["width"], settings["height"]],
-                "configured_fps": self.vision_config.camera.fps,
-                "camera_fps": settings["fps"], "measured_fps": frames / elapsed,
-                "profile": self.app_config.aruco_profile, "frames": frames,
-                "capture_elapsed_seconds": elapsed,
-                "visible_ids": [marker for marker, count in counts.items() if count],
-                "visibility_percent": {str(k): v * 100 / frames for k, v in counts.items()},
-                "id18_visibility_percent": counts[18] * 100 / frames,
-                "board_ready": observer.state.ready,
-                "cells": {str(k): v.value for k, v in observer.state.cells.items()},
-            }
+                frame = camera.read()
+            with self.stage("aruco_detection"):
+                visible = detector.detect(frame).id_set.intersection(CELL_IDS)
+            with self.stage("observer"):
+                observer.update(visible, timestamp=self.clock())
+            for marker in visible:
+                counts[marker] += 1
+            frames += 1
+            self.sleep(0.01)
+        with self.stage("camera_read"):
+            if not frames:
+                raise RuntimeError("No frames captured")
+        elapsed = self.clock() - started
+        return observer, {
+            "resolution": [settings["width"], settings["height"]],
+            "configured_fps": self.vision_config.camera.fps,
+            "camera_fps": settings["fps"], "measured_fps": frames / elapsed,
+            "profile": self.app_config.aruco_profile, "frames": frames,
+            "capture_elapsed_seconds": elapsed,
+            "visible_ids": [marker for marker, count in counts.items() if count],
+            "visibility_percent": {str(k): v * 100 / frames for k, v in counts.items()},
+            "id18_visibility_percent": counts[18] * 100 / frames,
+            "board_ready": observer.state.ready,
+            "cells": {str(k): v.value for k, v in observer.state.cells.items()},
+        }
 
     def run(self, selected):
         from .tests import STEPS
