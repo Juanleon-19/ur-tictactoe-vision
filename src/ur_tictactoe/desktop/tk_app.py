@@ -11,7 +11,9 @@ from ur_tictactoe.desktop.application import GameApplication
 from ur_tictactoe.desktop.assets import optional_asset
 from ur_tictactoe.desktop.settings import load_app_config
 from ur_tictactoe.desktop import theme
-from ur_tictactoe.config import CELL_IDS
+from ur_tictactoe.desktop.diagnostics import diagnostic_text
+from ur_tictactoe.desktop.help_content import start_explanation
+from ur_tictactoe.desktop.operator_panels import CameraControls, HelpPanel
 from ur_tictactoe.game import (
     DRAW,
     HARD,
@@ -53,7 +55,7 @@ class DesktopWindow:
         self.root.minsize(800, 550)
         self.root.grid_rowconfigure(1, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
-        self.tabs = ctk.CTkTabview(self.root)
+        self.tabs = ctk.CTkTabview(self.root, command=self._tab_changed)
         self.tabs.grid(row=1, column=0, sticky="nsew")
         self.author_footer = ctk.CTkLabel(
             self.root, text="By: Juan Esteban León Saiz", text_color=theme.TEXT_SECONDARY,
@@ -90,6 +92,8 @@ class DesktopWindow:
             height=20,
         )
         self.profile_feedback.pack(fill="x", padx=12)
+        self.camera_controls = CameraControls(diagnostic_tab, application)
+        self.help_panel = HelpPanel(self.tabs.add("AYUDA / PUESTA EN MARCHA"), application)
         self.camera_preview = ctk.CTkLabel(diagnostic_tab, text="CÁMARA NO DISPONIBLE", height=1)
         self.camera_details = ctk.CTkLabel(diagnostic_tab, text="", justify="left")
         self.camera_details.pack(side="bottom", fill="x", padx=12, pady=6)
@@ -130,7 +134,7 @@ class DesktopWindow:
             with Image.open(logo) as source:
                 image = source.copy()
             # Keep full-resolution pixels for high-DPI displays; scale uniformly.
-            size = (220, round(image.height * 220 / image.width))
+            size = (260, round(image.height * 260 / image.width))
             self._logo_image = ctk.CTkImage(image, size=size)
             self.logo_label = ctk.CTkLabel(header, text="", image=self._logo_image)
             self.logo_label.grid(
@@ -190,9 +194,12 @@ class DesktopWindow:
 
         status = self._card("ESTADO DEL SISTEMA", 1)
         snapshot = self.application.snapshot()
-        self._status_row(status, "Cámara", snapshot.camera_status)
-        self._status_row(status, "Robot", snapshot.robot_status)
-        self._status_row(status, "Tablero", snapshot.board_status)
+        self.home_status_labels = {
+            name: self._status_row(status, name, value) for name, value in (
+                ("Cámara", snapshot.camera_status), ("Robot", snapshot.robot_status),
+                ("Tablero", snapshot.board_status),
+            )
+        }
 
         footer = ctk.CTkFrame(self.container, fg_color="transparent")
         footer.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(18, 0))
@@ -333,7 +340,8 @@ class DesktopWindow:
         )
 
     def _start_game(self) -> None:
-        self.application.new_game(self.difficulty.get(), self.human_first.get())
+        started = self.application.new_game(self.difficulty.get(), self.human_first.get())
+        self._start_blocked = not started and not self.application.simulation
         self.root.after(50, self._show_game)
 
     def _update_picaro_note(self, *_args: object) -> None:
@@ -352,8 +360,22 @@ class DesktopWindow:
         self._picaro_selecting = not self._picaro_selecting
         self._render()
 
+    def _tab_changed(self) -> None:
+        if self.tabs.get() == "AYUDA / PUESTA EN MARCHA":
+            self.help_panel.reload_report()
+
     def _tick(self) -> None:
         self.application.update()
+        self.camera_controls.refresh()
+        state = self.application.snapshot()
+        for name, value in (("Cámara", state.camera_status), ("Robot", state.robot_status),
+                            ("Tablero", state.board_status)):
+            dot, label = self.home_status_labels[name]
+            if label.winfo_exists():
+                dot.configure(text_color=self._status_color(value))
+                label.configure(text=value, text_color=self._status_color(value))
+        if self.tabs.get() == "AYUDA / PUESTA EN MARCHA":
+            self.help_panel.refresh()
         if self.tabs.get() == "CÁMARA / DIAGNÓSTICO":
             self._render_diagnostics()
         if self.cell_buttons and self.cell_buttons[0].winfo_exists():
@@ -385,14 +407,9 @@ class DesktopWindow:
             self._preview_image = ctk.CTkImage(preview, size=preview.size)
             self._preview_source = snapshot.frame
             self.camera_preview.configure(image=self._preview_image, text="")
-        resolution = " × ".join(map(str, snapshot.resolution)) if snapshot.resolution else "—"
-        cells = "   ".join(f"{cell}: {state.value}" for cell, state in enumerate(snapshot.cells, 1))
-        missing = sorted(set(CELL_IDS).difference(snapshot.visible_ids))
+        state = self.application.snapshot()
         self.camera_details.configure(
-            text=f"Cámara: {snapshot.camera_status} | {resolution}\n"
-                 f"IDs visibles ({len(snapshot.visible_ids)}/9): {', '.join(map(str, snapshot.visible_ids)) or '—'}\n"
-                 f"IDs faltantes: {', '.join(map(str, missing)) or '—'}\n{cells}",
-            wraplength=760,
+            text=diagnostic_text(snapshot, state.board_status, state.last_error), wraplength=760,
         )
 
     def _render(self) -> None:
@@ -452,7 +469,9 @@ class DesktopWindow:
             dot.configure(text_color=color)
             label.configure(text=value, text_color=color)
         self.result_label.configure(text=RESULT_LABELS.get(snapshot.result, ""))
-        self.error_label.configure(text=f"Error: {snapshot.last_error}" if snapshot.last_error else "")
+        self.error_label.configure(text=(start_explanation(snapshot)
+            if getattr(self, "_start_blocked", False) else
+            f"Error: {snapshot.last_error}" if snapshot.last_error else ""))
 
     @staticmethod
     def _status_color(value: str) -> str:
@@ -468,9 +487,11 @@ class DesktopWindow:
 
 def run_desktop_app(simulation: bool, config_path: Path | None = None) -> int:
     application = GameApplication(simulation=simulation, config=load_app_config(config_path))
-    application.open()
     try:
-        DesktopWindow(application).run()
+        window = DesktopWindow(application)
+        if not simulation:
+            application.open_async()
+        window.run()
     finally:
         application.close()
     return 0

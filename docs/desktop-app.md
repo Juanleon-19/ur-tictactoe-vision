@@ -17,6 +17,51 @@ GameSession / Modbus / PhysicalBoardState
 La GUI no contiene Minimax, reglas, ArUco, observación física ni control Modbus.
 Solo selecciona configuración, envía intenciones y representa snapshots.
 
+## Controles de operación y ayuda offline
+
+Abrir `python main.py app --simulate` y seleccionar **AYUDA / PUESTA EN MARCHA**
+para consultar la ayuda sin hardware. Las seis secciones incluyen checklist,
+solución contextual de problemas, mapa CELL1–9 / ID10–18, red y seguridad.
+El estado general se actualiza desde el runtime; la simulación no acredita PASS físico.
+Help es solo lectura: no tiene comandos de robot ni ejecuta el harness.
+
+En **CÁMARA / DIAGNÓSTICO**, los perfiles Robusto, Reflejos y Estándar se conservan.
+Los nuevos controles permiten seleccionar índice y AUTO/DSHOW/MSMF para esta sesión:
+
+- **DETECTAR CÁMARAS** prueba 0–5 en segundo plano y libera cada captura de prueba.
+  Reutiliza como evidencia el índice ya abierto con el mismo backend. Los índices
+  no identifican marcas de cámara. No cambia la selección ni los YAML.
+- **APLICAR CÁMARA** y **RECONECTAR CÁMARA** sustituyen únicamente la cámara,
+  conservan Modbus y descartan la observación anterior para reacquirir el tablero.
+- **REINICIAR OBSERVACIÓN** conserva cámara, detector y Modbus; limpia el estado
+  temporal, IDs y preview. Esperar nuevamente la estabilización.
+
+Estos controles se bloquean durante una partida física y mientras hay otra operación
+de cámara pendiente. La apertura inicial también ocurre en segundo plano: se muestra
+«Inicializando cámara...», sin timeout prematuro para los 50–60 s de la C920.
+Una llamada del driver en curso no se puede cancelar desde Python; al cerrar la
+ventana se solicita liberar los recursos cuando retorne. La detección puede tardar
+varias aperturas, pero la ventana sigue atendiendo eventos.
+
+El diagnóstico muestra cámara/backend, resolución capturada, FPS medidos entre ticks
+de captura (limitados por el refresco de la GUI), perfil, IDs y estado del tablero.
+La iluminación muestrea uno de cada ocho píxeles por eje, convierte a luminancia
+y avisa si al menos 5 % alcanza 250/255. Es una recomendación visual aproximada:
+un fondo blanco puede activarla. No altera el frame, perfiles, observer ni permisos
+de inicio y no es un criterio de seguridad.
+
+Al abrir la pestaña de ayuda se lee el archivo válido más reciente por modificación
+en `reports/commissioning_*.json`. Se ignoran archivos corruptos y se muestran nombre
+y estados del reporte elegido; no se combinan ensayos ni se modifican reportes.
+Un paso ausente queda PENDIENTE. El checklist conserva solo PASS con evidencia;
+FAIL/BLOCKED/SKIPPED se consultan literalmente en la sección Commissioning.
+Los resultados son históricos y no certifican el hardware actual. C10–C14 siguen
+sin implementación habilitada en el harness. C1–C4 físicos aprobados y C5 pendiente
+no se modifican por estas mejoras de software.
+
+Cerrar la aplicación, Ctrl+C o ABORT no garantiza detener un movimiento del UR.
+COMMAND0 es acknowledgement, no emergency stop. Ante riesgo, usar parada física.
+
 ## Modo simulado
 
 ```powershell

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from threading import Lock, Thread
 
 from ur_tictactoe.communication import STATUS_BUSY, STATUS_DONE, STATUS_READY
 from ur_tictactoe.config import load_vision_config
@@ -77,6 +78,12 @@ class GameApplication:
         self.config = config or AppConfig()
         self._session_profile = self.config.aruco_profile
         self.profile_change_error: str | None = None
+        self.camera_busy = False
+        self.camera_feedback = "Solo para esta sesión"
+        self.detected_cameras: list[str] = []
+        self._camera_worker: Thread | None = None
+        self._closing = False
+        self._lifecycle_lock = Lock()
         self.session: GameSession | None = None
         self.runtime: PhysicalGameRuntime | None = None
         self._physical_occupied: set[int] = set()
@@ -100,6 +107,9 @@ class GameApplication:
     def set_aruco_profile(self, profile: str) -> bool:
         """Session-only command, called on the same UI thread as update()."""
         self.profile_change_error = None
+        if self.camera_busy:
+            self.profile_change_error = "Espere a que termine la operación de cámara."
+            return False
         if not self.simulation and self.runtime is not None and (
             self.runtime.state != RuntimeState.GAME_OVER
         ):
@@ -121,6 +131,85 @@ class GameApplication:
         self._session_profile = profile
         return True
 
+    @property
+    def physical_game_active(self) -> bool:
+        return (not self.simulation and self.runtime is not None
+                and self.runtime.state != RuntimeState.GAME_OVER)
+
+    def _camera_operation(self, operation, message: str, success_message=None) -> bool:
+        if self.physical_game_active or self.camera_busy or self._closing:
+            self.camera_feedback = "Operación bloqueada: partida física activa u operación en curso."
+            return False
+        if self.simulation or self.real_backend is None:
+            self.camera_feedback = "Cámara no disponible en este modo."
+            return False
+        self.camera_busy = True
+        self.camera_feedback = message
+        self._last_observation = None
+
+        def work():
+            try:
+                success = operation()
+                if success is False:
+                    self.camera_feedback = self.real_backend.last_error or "No se pudo completar la operación."
+                else:
+                    self.camera_feedback = (success_message() if success_message else
+                                            "Cámara lista. Esperando estabilización del tablero.")
+                self._last_error = self.real_backend.last_error
+            except Exception as exc:
+                self.camera_feedback = f"CAMERA_OPERATION_ERROR: {exc}"
+            finally:
+                with self._lifecycle_lock:
+                    closing = self._closing
+                    self.camera_busy = False
+                if closing:
+                    self.real_backend.close()
+
+        self._camera_worker = Thread(target=work, daemon=True, name="desktop-camera")
+        self._camera_worker.start()
+        return True
+
+    def open_async(self) -> bool:
+        return self._camera_operation(self.open, "Inicializando cámara...")
+
+    def apply_camera(self, index: int, backend: str) -> bool:
+        return self._camera_operation(
+            lambda: self.real_backend.apply_camera(index, backend), "Inicializando cámara..."
+        )
+
+    def reconnect_camera(self) -> bool:
+        return self._camera_operation(
+            lambda: self.real_backend.reconnect_camera(), "Inicializando cámara..."
+        )
+
+    def detect_cameras(self, backend: str) -> bool:
+        from ur_tictactoe.desktop.camera_controls import detect_local_cameras
+
+        def detect():
+            current = self.real_backend.camera_config
+            known = current.index if (self.real_backend.camera_status == "CONECTADA"
+                                      and backend == current.backend) else None
+            self.detected_cameras = [f"Camera {i}" for i in detect_local_cameras(backend, known)]
+            return True
+
+        return self._camera_operation(
+            detect, "Detectando cámaras...",
+            lambda: ("Disponibles: " + ", ".join(self.detected_cameras)
+                     if self.detected_cameras else "No se detectaron cámaras disponibles."),
+        )
+
+    def reset_board_observation(self) -> bool:
+        if self.physical_game_active or self.camera_busy or self._closing:
+            self.camera_feedback = "Operación bloqueada: partida física activa u operación en curso."
+            return False
+        if self.simulation or self.real_backend is None:
+            self.camera_feedback = "Cámara no disponible en este modo."
+            return False
+        self.real_backend.reset_board_observation()
+        self._last_observation = None
+        self.camera_feedback = "Observación reiniciada. Esperando estabilización del tablero."
+        return True
+
     def open(self) -> bool:
         """Open real resources; simulation has no external lifecycle."""
         if self.simulation:
@@ -132,10 +221,17 @@ class GameApplication:
         return opened
 
     def close(self) -> None:
+        with self._lifecycle_lock:
+            self._closing = True
+            if self.camera_busy:
+                return  # The worker releases resources after the driver returns.
         if self.real_backend is not None:
             self.real_backend.close()
 
     def new_game(self, difficulty: str, human_first: bool, *, seed: int | None = None) -> bool:
+        if self.camera_busy:
+            self._last_error = "CAMERA_INITIALIZING"
+            return False
         if difficulty not in (HARD, INTERMEDIATE, PICARO):
             raise ValueError(f"Unknown difficulty: {difficulty}")
 
@@ -229,11 +325,10 @@ class GameApplication:
                     self.runtime.update_board(self._physical_state())
 
     def _update_real(self) -> None:
-        if self.real_backend is None:
+        if self.real_backend is None or self.camera_busy or self._closing:
             return
         observation = self.real_backend.tick()
-        if observation is not None:
-            self._last_observation = observation
+        self._last_observation = observation
         if self.real_backend.last_error:
             self._last_error = self.real_backend.last_error
         if self.real_backend.camera_status == "ERROR":

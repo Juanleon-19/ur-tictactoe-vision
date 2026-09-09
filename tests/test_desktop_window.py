@@ -19,7 +19,7 @@ def test_friendly_vision_profile_mapping():
 
 def _check_header(window):
     window.root.update()
-    assert window._logo_image.cget("size") == (220, 110)
+    assert window._logo_image.cget("size") == (260, 130)
     assert window._logo_image.cget("light_image").size == (632, 316)
     assert window.header.winfo_ismapped()
     assert window.logo_label.winfo_ismapped()
@@ -48,6 +48,17 @@ def _check_simulation() -> None:
         _check_header(window)
         assert window.camera_preview.cget("text") == "CÁMARA NO DISPONIBLE"
         assert app.snapshot() == before
+        window.tabs.set("AYUDA / PUESTA EN MARCHA")
+        window.help_panel.refresh()
+        window.root.update()
+        assert "ESTADO GENERAL" in window.help_panel.general.cget("text")
+        assert window.help_panel.content.cget("state") == "disabled"
+        for section in window.help_panel.section.cget("values"):
+            window.help_panel.section.set(section)
+            window.help_panel.refresh()
+            assert window.help_panel.content.get("1.0", "end").strip()
+        assert app.snapshot() == before
+        window.tabs.set("CÁMARA / DIAGNÓSTICO")
         assert window.vision_profile.get() == "Robusto"
         for label, profile in VISION_PROFILES.items():
             window.vision_profile.set(label)
@@ -113,6 +124,28 @@ def _check_profile_live() -> None:
         app.update()
         window._render_diagnostics()
         assert window._preview_image is not None
+        controls = window.camera_controls
+        assert controls.backend_selector.cget("values") == ["AUTO", "DSHOW", "MSMF"]
+        assert controls.index.get() == "Camera 0"
+        calls = []
+        original_apply = app.apply_camera
+        app.apply_camera = lambda index, backend: calls.append((index, backend))
+        try:
+            for label in ("AUTO", "DSHOW", "MSMF"):
+                controls.index.set("Camera 2")
+                controls.backend.set(label)
+                controls.buttons[1].invoke()
+                assert calls[-1] == (2, label)
+            controls.index.set("invalid")
+            controls.buttons[1].invoke()
+            assert "no válido" in app.camera_feedback
+        finally:
+            app.apply_camera = original_apply
+        app.detected_cameras = ["Camera 1", "Camera 2"]
+        controls.index.set("Camera 0")
+        controls.refresh()
+        assert controls.selector.cget("values") == ["Camera 1", "Camera 2"]
+        assert controls.index.get() == "Camera 0"
         window.vision_profile.set("Reflejos")
         window.apply_profile_button.invoke()
         app.update()
@@ -133,6 +166,8 @@ def _check_profile_live() -> None:
         backend.observer = RecordingObserver(physical())
         app.update()
         assert app.new_game(HARD, True)
+        controls.refresh()
+        assert all(button.cget("state") == "disabled" for button in controls.buttons)
         window.vision_profile.set("Robusto")
         window.apply_profile_button.invoke()
         assert window.profile_feedback.cget("text") == "No se puede cambiar el perfil durante una partida activa."
