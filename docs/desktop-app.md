@@ -50,14 +50,33 @@ y avisa si al menos 5 % alcanza 250/255. Es una recomendación visual aproximada
 un fondo blanco puede activarla. No altera el frame, perfiles, observer ni permisos
 de inicio y no es un criterio de seguridad.
 
-Al abrir la pestaña de ayuda se lee el archivo válido más reciente por modificación
-en `reports/commissioning_*.json`. Se ignoran archivos corruptos y se muestran nombre
-y estados del reporte elegido; no se combinan ensayos ni se modifican reportes.
-Un paso ausente queda PENDIENTE. El checklist conserva solo PASS con evidencia;
-FAIL/BLOCKED/SKIPPED se consultan literalmente en la sección Commissioning.
-Los resultados son históricos y no certifican el hardware actual. C10–C14 siguen
-sin implementación habilitada en el harness. C1–C4 físicos aprobados y C5 pendiente
-no se modifican por estas mejoras de software.
+La presentación utiliza cards blancas, badges y texto Segoe UI. La configuración de
+visión se agrupa sobre el preview, con una sola nota de sesión. El estado de visión
+queda a su lado; **DETALLE** conserva IDs visibles, FPS de la GUI y códigos internos.
+En simulación los controles físicos y aplicar perfil están deshabilitados; el
+servicio de simulación y la pantalla JUEGO conservan su comportamiento.
+
+En ayuda hay dos vistas independientes y de solo lectura:
+
+- **Última sesión**, en Commissioning: el último archivo válido por modificación,
+  únicamente con los pasos que incluye y su archivo, timestamp y SHA.
+- **Historial de validación física**, en Puesta en marcha: último resultado explícito
+  de cada C0–C14 por timestamp del reporte (fecha de modificación si falta timestamp).
+  Cada fila conserva archivo, fecha y SHA de origen. No se infieren resultados;
+  los ausentes son PENDIENTE. PASS, FAIL, BLOCKED y SKIPPED conservan su significado.
+
+Los JSON corruptos se ignoran y ningún reporte se modifica. El historial se etiqueta
+como evidencia histórica que puede no representar el hardware actual; no es una
+certificación. **Siguiente paso recomendado** toma el primer C1–C14 sin PASS;
+C0 se muestra separadamente como evidencia de software. C1–C4 PASS recomienda C5,
+y C5 PASS avanza a C6. **VER PROCEDIMIENTO** solo navega a la ayuda del paso.
+Los resúmenes C1–C14 describen objetivo, preparación, observación, criterio y riesgo,
+según el harness existente. C10–C14 siguen sin habilitarse en ese harness.
+
+**Solucionar problema** ofrece siete opciones con estado runtime y acciones sugeridas.
+Help usa scroll vertical y no ejecuta commissioning, terminales ni comandos de robot.
+La geometría se comprueba con widgets reales a 900×620 y 1366×768; el logo y JUEGO
+permanecen intactos. Las pruebas usan dispositivos falsos, sin validación física nueva.
 
 Cerrar la aplicación, Ctrl+C o ABORT no garantiza detener un movimiento del UR.
 COMMAND0 es acknowledgement, no emergency stop. Ante riesgo, usar parada física.

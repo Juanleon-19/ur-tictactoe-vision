@@ -11,9 +11,11 @@ from ur_tictactoe.desktop.application import GameApplication
 from ur_tictactoe.desktop.assets import optional_asset
 from ur_tictactoe.desktop.settings import load_app_config
 from ur_tictactoe.desktop import theme
-from ur_tictactoe.desktop.diagnostics import diagnostic_text
+from ur_tictactoe.desktop.diagnostic_panel import DiagnosticPanel
+from ur_tictactoe.desktop.operator_style import card
 from ur_tictactoe.desktop.help_content import start_explanation
-from ur_tictactoe.desktop.operator_panels import CameraControls, HelpPanel
+from ur_tictactoe.desktop.operator_panels import CameraControls
+from ur_tictactoe.desktop.help_panel import HelpPanel
 from ur_tictactoe.game import (
     DRAW,
     HARD,
@@ -66,20 +68,24 @@ class DesktopWindow:
         game_tab.grid_rowconfigure(0, weight=1)
         game_tab.grid_columnconfigure(0, weight=1)
         diagnostic_tab = self.tabs.add("CÁMARA / DIAGNÓSTICO")
-        vision_controls = ctk.CTkFrame(diagnostic_tab, fg_color="transparent")
-        vision_controls.pack(fill="x", padx=12, pady=(6, 0))
-        ctk.CTkLabel(vision_controls, text="Perfil de visión:").pack(side="left", padx=(0, 8))
+        vision_card = card(diagnostic_tab, "CONFIGURACIÓN DE VISIÓN")
+        vision_card.pack(fill="x", padx=12, pady=(6, 8))
+        vision_controls = ctk.CTkFrame(vision_card, fg_color="transparent")
+        vision_controls.pack(fill="x", padx=14)
+        ctk.CTkLabel(vision_controls, text="Perfil:").pack(side="left", padx=(0, 8))
         self.vision_profile = tk.StringVar(
             value=PROFILE_LABELS[application.diagnostic_snapshot().profile]
         )
         self.profile_selector = ctk.CTkOptionMenu(
             vision_controls, values=list(VISION_PROFILES), variable=self.vision_profile,
-            width=115,
+            width=115, state="disabled" if application.simulation else "normal",
         )
         self.profile_selector.pack(side="left")
         self.apply_profile_button = ctk.CTkButton(
-            vision_controls, text="APLICAR PERFIL", command=self._apply_vision_profile,
-            width=130,
+            vision_controls, text="APLICAR", command=self._apply_vision_profile,
+            width=100, fg_color=theme.BORDER if application.simulation else theme.PRIMARY,
+            hover_color=theme.PRIMARY_HOVER,
+            state="disabled" if application.simulation else "normal",
         )
         self.apply_profile_button.pack(side="left", padx=10)
         self.active_profile = ctk.CTkLabel(
@@ -87,17 +93,16 @@ class DesktopWindow:
             text_color=theme.PRIMARY,
         )
         self.active_profile.pack(side="left")
-        self.profile_feedback = ctk.CTkLabel(
-            diagnostic_tab, text="Solo para esta sesión", text_color=theme.TEXT_SECONDARY,
-            height=20,
-        )
-        self.profile_feedback.pack(fill="x", padx=12)
-        self.camera_controls = CameraControls(diagnostic_tab, application)
+        self.camera_controls = CameraControls(vision_card, application)
+        self.profile_feedback = self.camera_controls.feedback
         self.help_panel = HelpPanel(self.tabs.add("AYUDA / PUESTA EN MARCHA"), application)
-        self.camera_preview = ctk.CTkLabel(diagnostic_tab, text="CÁMARA NO DISPONIBLE", height=1)
-        self.camera_details = ctk.CTkLabel(diagnostic_tab, text="", justify="left")
-        self.camera_details.pack(side="bottom", fill="x", padx=12, pady=6)
-        self.camera_preview.pack(fill="both", expand=True, padx=12, pady=6)
+        diagnostic_body = ctk.CTkFrame(diagnostic_tab, fg_color="transparent")
+        diagnostic_body.pack(fill="both", expand=True, padx=12, pady=(0, 6))
+        self.camera_details = DiagnosticPanel(diagnostic_body)
+        self.camera_details.pack(side="right", fill="y", padx=(10, 0))
+        self.camera_preview = ctk.CTkLabel(diagnostic_body, text="CÁMARA NO DISPONIBLE", height=1,
+                                          fg_color=theme.CARD_BACKGROUND, corner_radius=12)
+        self.camera_preview.pack(fill="both", expand=True)
         self._preview_source = None
         self._preview_image = None
         # CTkLabel image=None leaves the previous Tcl image attached.
@@ -383,12 +388,15 @@ class DesktopWindow:
         self.root.after(self.application.config.update_interval_ms, self._tick)
 
     def _apply_vision_profile(self) -> None:
+        if self.application.simulation:
+            return
         applied = self.application.set_aruco_profile(VISION_PROFILES[self.vision_profile.get()])
         self.profile_feedback.configure(
-            text="Perfil aplicado · Solo para esta sesión" if applied
+            text="Perfil aplicado" if applied
             else self.application.profile_change_error,
             text_color=theme.TEXT_SECONDARY if applied else theme.ERROR,
         )
+        self.camera_controls.profile_message = self.profile_feedback.cget("text")
         self._render_diagnostics()
 
     def _render_diagnostics(self) -> None:
@@ -408,9 +416,7 @@ class DesktopWindow:
             self._preview_source = snapshot.frame
             self.camera_preview.configure(image=self._preview_image, text="")
         state = self.application.snapshot()
-        self.camera_details.configure(
-            text=diagnostic_text(snapshot, state.board_status, state.last_error), wraplength=760,
-        )
+        self.camera_details.refresh(snapshot, state)
 
     def _render(self) -> None:
         snapshot = self.application.snapshot()

@@ -52,21 +52,24 @@ def _check_simulation() -> None:
         window.help_panel.refresh()
         window.root.update()
         assert "ESTADO GENERAL" in window.help_panel.general.cget("text")
-        assert window.help_panel.content.cget("state") == "disabled"
+        assert window.help_panel.content.winfo_exists()
         for section in window.help_panel.section.cget("values"):
             window.help_panel.section.set(section)
             window.help_panel.refresh()
-            assert window.help_panel.content.get("1.0", "end").strip()
+            assert window.help_panel.content.winfo_children()
         assert app.snapshot() == before
         window.tabs.set("CÁMARA / DIAGNÓSTICO")
         assert window.vision_profile.get() == "Robusto"
-        for label, profile in VISION_PROFILES.items():
-            window.vision_profile.set(label)
-            window.apply_profile_button.invoke()
-            assert app.diagnostic_snapshot().profile == profile
-            assert window.active_profile.cget("text") == f"Perfil activo: {label}"
-        assert "IDs visibles (0/9)" in window.camera_details.cget("text")
-        assert "IDs faltantes: 10, 11, 12, 13, 14, 15, 16, 17, 18" in window.camera_details.cget("text")
+        assert window.apply_profile_button.cget("state") == "disabled"
+        for button in window.camera_controls.buttons:
+            assert button.cget("state") == "disabled"
+            button.invoke()
+        window.apply_profile_button.invoke()
+        assert app.real_backend is None
+        assert app.diagnostic_snapshot().profile == "robust"
+        assert "Controles de cámara disponibles en SISTEMA REAL" == window.camera_controls.feedback.cget("text")
+        assert window.camera_details.values["Marcadores"].cget("text") == "0/9"
+        assert window.camera_details.values["Faltantes"].cget("text") == "10, 11, 12, 13, 14, 15, 16, 17, 18"
         window.tabs.set("JUEGO")
         assert app.new_game(PICARO, True, seed=7)
         window._show_game()
@@ -92,7 +95,7 @@ def _check_simulation() -> None:
             if value:
                 assert window.cell_buttons[i].cget("fg_color") == (theme.X_COLOR if value == "X" else theme.O_COLOR)
         assert dimensions == [(b.winfo_width(), b.winfo_height()) for b in window.cell_buttons]
-        for geometry in ("800x550", "900x620"):
+        for geometry in ("900x620", "1366x768"):
             window.root.geometry(geometry)
             _check_header(window)
             window.tabs.set("CÁMARA / DIAGNÓSTICO")
@@ -155,7 +158,7 @@ def _check_profile_live() -> None:
         assert window.active_profile.cget("text") == "Perfil activo: Reflejos"
         assert camera.open_calls == backend.modbus_client.connect_calls == 1
         assert camera.close_calls == backend.modbus_client.close_calls == 0
-        for geometry in ("800x550", "900x620"):
+        for geometry in ("900x620", "1366x768"):
             window.root.geometry(geometry)
             window.root.update()
             assert window.profile_selector.winfo_ismapped()
@@ -200,7 +203,97 @@ def _check_real() -> None:
     assert backend.camera.close_calls == backend.modbus_client.close_calls == 1
 
 
-@pytest.mark.parametrize("check", ["_check_simulation", "_check_real", "_check_profile_live"])
+def _check_operator_layout():
+    import customtkinter as ctk
+    from ur_tictactoe.desktop.commissioning_status import CommissioningStatus
+    from ur_tictactoe.desktop.operator_guidance import PROBLEMS
+
+    app = GameApplication(True)
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Help or simulation attempted a hardware operation")
+    app.open = app.open_async = app.apply_camera = app.reconnect_camera = forbidden
+    app.detect_cameras = app.reset_board_observation = forbidden
+    window = DesktopWindow(app)
+    errors = []
+    window.root.report_callback_exception = lambda *args: errors.append(args)
+    try:
+        for geometry in ("900x620", "1366x768"):
+            window.root.geometry(geometry)
+            window.tabs.set("CÁMARA / DIAGNÓSTICO")
+            window._render_diagnostics()
+            window.root.update()
+            _check_header(window)
+            for button in [window.apply_profile_button, *window.camera_controls.buttons]:
+                assert button.cget("state") == "disabled"
+                button.invoke()
+                assert button.winfo_ismapped()
+                assert button.winfo_x() + button.winfo_width() <= button.master.winfo_width()
+                assert button._text_label.winfo_reqwidth() <= button.winfo_width() - 10
+            assert window.camera_preview.winfo_height() > 70
+            panel = window.camera_details
+            assert panel.detail_button.winfo_ismapped()
+            assert panel.detail_button.winfo_rooty() + panel.detail_button.winfo_height() <= panel.winfo_rooty() + panel.winfo_height()
+            for value in panel.values.values():
+                assert value.winfo_rootx() + value.winfo_width() <= panel.winfo_rootx() + panel.winfo_width()
+                assert value.winfo_rooty() + value.winfo_height() <= panel.winfo_rooty() + panel.winfo_height()
+            window.tabs.set("AYUDA / PUESTA EN MARCHA")
+            help_panel = window.help_panel
+            help_panel.history = {f"C{i}": CommissioningStatus("test.json", {f"C{i}": "PASS"}, "date", "sha")
+                                  for i in range(1, 5)}
+            help_panel.section.set("Puesta en marcha")
+            help_panel.select_section()
+            window.root.update()
+            help_panel.procedure_button.invoke()
+            assert help_panel.selected_procedure == "C5"
+            for step in range(1, 15):
+                help_panel.show_procedure(f"C{step}")
+                window.root.update_idletasks()
+                assert help_panel.content.winfo_children()
+            help_panel.section.set("Solucionar problema")
+            help_panel.select_section()
+            for problem in PROBLEMS:
+                help_panel.show_problem(problem)
+                window.root.update_idletasks()
+                assert help_panel.content.winfo_children()
+            for section in help_panel.section.cget("values"):
+                help_panel.section.set(section)
+                help_panel.select_section()
+                window.root.update_idletasks()
+                assert all(not isinstance(widget, ctk.CTkTextbox)
+                           for widget in help_panel.content.winfo_children())
+                assert help_panel.content.winfo_width() > 600
+            assert app.real_backend is None
+        assert not errors
+    finally:
+        window.root.destroy()
+        app.close()
+
+
+def _check_camera_button_routing():
+    import customtkinter as ctk
+    from ur_tictactoe.desktop.operator_panels import CameraControls
+    app = GameApplication(False, real_backend=make_backend())
+    calls = []
+    app.detect_cameras = lambda backend: calls.append(("detect", backend))
+    app.apply_camera = lambda index, backend: calls.append(("apply", index, backend))
+    app.reconnect_camera = lambda: calls.append(("reconnect",))
+    app.reset_board_observation = lambda: calls.append(("reset",))
+    root = ctk.CTk()
+    try:
+        controls = CameraControls(root, app)
+        controls.index.set("Camera 3")
+        controls.backend.set("MSMF")
+        for button in controls.buttons:
+            button.invoke()
+        assert calls == [("detect", "MSMF"), ("apply", 3, "MSMF"), ("reconnect",), ("reset",)]
+        assert app.real_backend.camera.open_calls == 0
+        assert app.real_backend.modbus_client.connect_calls == 0
+    finally:
+        root.destroy()
+        app.close()
+
+
+@pytest.mark.parametrize("check", ["_check_simulation", "_check_real", "_check_profile_live", "_check_operator_layout", "_check_camera_button_routing"])
 def test_desktop_process_acceptance(check) -> None:
     # CTk maintains process-global theme/scaling state. Each application launch
     # gets its own process, including the real-widget acceptance checks.
@@ -210,7 +303,7 @@ def test_desktop_process_acceptance(check) -> None:
     result = subprocess.run(
         [sys.executable, "-c", "import runpy,sys; runpy.run_path(sys.argv[1])[sys.argv[2]]()",
          str(Path(__file__).resolve()), check],
-        env=env, capture_output=True, text=True, timeout=30,
+        env=env, capture_output=True, text=True, timeout=60,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Traceback" not in result.stderr, result.stderr

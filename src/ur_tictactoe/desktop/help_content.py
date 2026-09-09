@@ -62,9 +62,9 @@ def start_explanation(snapshot) -> str:
 def report_text(report: CommissioningStatus | None) -> str:
     if report is None:
         return "Sin resultados de commissioning disponibles."
-    return (f"Último reporte válido: {report.source}\nEvidencia histórica, no validación del estado actual.\n"
+    return (f"Último reporte válido: {report.source}\n{report.timestamp}\nSHA: {report.software_commit_sha}\nEvidencia histórica, no validación del estado actual.\n"
             + "\n".join(f"{step} {description.split(':')[0]}: {report.results.get(step, 'PENDIENTE')}"
-                        for step, description in STEPS.items()))
+                        for step, description in STEPS.items() if step in report.results))
 
 
 def help_text(section: str, snapshot, report: CommissioningStatus | None) -> str:
@@ -89,7 +89,7 @@ def help_text(section: str, snapshot, report: CommissioningStatus | None) -> str
                 "Iluminación es solo orientación visual; no altera detección ni seguridad.\n\n"
                 + BOARD_MAP + "\n\nMarcador visible estable → FREE. Marcador oculto estable → OCCUPIED.\n"
                 "El observer filtra mano/reflejo temporal; ausencia instantánea no implica ocupación.\n"
-                "La validación física de oclusión C5 sigue pendiente hasta contar con evidencia.")
+                "Consultar C5 en Historial de validación para comprobar la evidencia de oclusión.")
     if section == "Red y robot":
         return ("PC Ethernet ↔ UR: ambos deben estar en la misma subred.\n\n"
                 "Ejemplo solamente, NO hardcode de producto:\n"
