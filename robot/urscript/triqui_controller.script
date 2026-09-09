@@ -20,93 +20,70 @@ def triqui_controller():
   # P1, P3, P7, P9 (actual placement), P_PICK (pickup), P_HOME (HOME/WAIT).
   # No feature symbols are resolved here. Re-run Assignments after reteaching.
   # Include the installed Robotiq URCap definitions in the PolyScope program.
-  # +Tool Z lowers this validated TCP; -Tool Z raises it by 40 mm.
-  global APPROACH_DZ = -0.040
+  # +Tool Z lowers this validated TCP; -Tool Z raises it by 60 mm.
+  global APPROACH_DZ = -0.060
   global JOINT_A = 0.20
   global JOINT_V = 0.10
   global LINEAR_A = 0.05
   global LINEAR_V = 0.02
   global gripper_initialized = False
 
-  def interpolated_cell_pose(cell):
-    local row = floor((cell - 1) / 3)
-    local col = (cell - 1) - row * 3
-    local u = col / 2.0
-    local v = row / 2.0
-    local x = (1-u)*(1-v)*P1[0] + u*(1-v)*P3[0] + (1-u)*v*P7[0] + u*v*P9[0]
-    local y = (1-u)*(1-v)*P1[1] + u*(1-v)*P3[1] + (1-u)*v*P7[1] + u*v*P9[1]
-    local z = (1-u)*(1-v)*P1[2] + u*(1-v)*P3[2] + (1-u)*v*P7[2] + u*v*P9[2]
-    return p[x, y, z, P1[3], P1[4], P1[5]]
-  end
-
-  # Mode0 does not evaluate any pose or initialize/operate the gripper.
+  # Calculate placement poses once; Mode0 does not evaluate any pose.
   if ((MOTION_MODE == 1) or (MOTION_MODE == 2)):
-    global P2 = interpolated_cell_pose(2)
-    global P4 = interpolated_cell_pose(4)
-    global P5 = interpolated_cell_pose(5)
-    global P6 = interpolated_cell_pose(6)
-    global P8 = interpolated_cell_pose(8)
-    # Preserve corner XYZ, normalize their orientation to P1 too.
-    global P3 = interpolated_cell_pose(3)
-    global P7 = interpolated_cell_pose(7)
-    global P9 = interpolated_cell_pose(9)
-  end
-
-  def selected_cell_pose(cell):
-    if (cell == 1):
-      return P1
-    elif (cell == 2):
-      return P2
-    elif (cell == 3):
-      return P3
-    elif (cell == 4):
-      return P4
-    elif (cell == 5):
-      return P5
-    elif (cell == 6):
-      return P6
-    elif (cell == 7):
-      return P7
-    elif (cell == 8):
-      return P8
-    elif (cell == 9):
-      return P9
-    else:
-      textmsg("Invalid CELL", cell)
-      halt
-    end
-  end
-
-  def gripper_initialize():
-    # Activate only on the first Mode2 cycle of this program execution.
-    if (gripper_initialized == False):
-      rq_activate_and_wait()
-      global gripper_initialized = True
-    end
-  end
-
-  def move_to_cell_safe(cell):
-    local Pn = selected_cell_pose(cell)
-    local Pn_UP = pose_trans(Pn, p[0,0,APPROACH_DZ,0,0,0])
-    textmsg("SAFE GRID cell", cell)
-    textmsg("SAFE GRID pose", Pn_UP)
-    movej(get_inverse_kin(Pn_UP), a=JOINT_A, v=JOINT_V)
-    return True
+    global P2 = p[(P1[0] + P3[0]) / 2.0,
+                   (P1[1] + P3[1]) / 2.0,
+                   (P1[2] + P3[2]) / 2.0, P1[3], P1[4], P1[5]]
+    global P4 = p[(P1[0] + P7[0]) / 2.0,
+                   (P1[1] + P7[1]) / 2.0,
+                   (P1[2] + P7[2]) / 2.0, P1[3], P1[4], P1[5]]
+    global P5 = p[(P1[0] + P3[0] + P7[0] + P9[0]) / 4.0,
+                   (P1[1] + P3[1] + P7[1] + P9[1]) / 4.0,
+                   (P1[2] + P3[2] + P7[2] + P9[2]) / 4.0, P1[3], P1[4], P1[5]]
+    global P6 = p[(P3[0] + P9[0]) / 2.0,
+                   (P3[1] + P9[1]) / 2.0,
+                   (P3[2] + P9[2]) / 2.0, P1[3], P1[4], P1[5]]
+    global P8 = p[(P7[0] + P9[0]) / 2.0,
+                   (P7[1] + P9[1]) / 2.0,
+                   (P7[2] + P9[2]) / 2.0, P1[3], P1[4], P1[5]]
+    # Corner XYZ stays taught; all cell orientations match P1.
+    global P3 = p[P3[0], P3[1], P3[2], P1[3], P1[4], P1[5]]
+    global P7 = p[P7[0], P7[1], P7[2], P1[3], P1[4], P1[5]]
+    global P9 = p[P9[0], P9[1], P9[2], P1[3], P1[4], P1[5]]
   end
 
   def prepare_pick_and_place(cell):
-    if ((cell < 1) or (cell > 9) or (cell != floor(cell))):
+    if (cell == 1):
+      local Pn = P1
+    elif (cell == 2):
+      local Pn = P2
+    elif (cell == 3):
+      local Pn = P3
+    elif (cell == 4):
+      local Pn = P4
+    elif (cell == 5):
+      local Pn = P5
+    elif (cell == 6):
+      local Pn = P6
+    elif (cell == 7):
+      local Pn = P7
+    elif (cell == 8):
+      local Pn = P8
+    elif (cell == 9):
+      local Pn = P9
+    else:
       textmsg("Invalid CELL", cell)
       return False
     end
     local P_PICK_UP = pose_trans(P_PICK, p[0,0,APPROACH_DZ,0,0,0])
-    gripper_initialize()
+    if (gripper_initialized == False):
+      rq_activate_and_wait()
+      global gripper_initialized = True
+    end
     rq_open_and_wait()
     movej(get_inverse_kin(P_PICK_UP), a=JOINT_A, v=JOINT_V)
     movel(P_PICK, a=LINEAR_A, v=LINEAR_V)
     rq_close_and_wait()
     movel(P_PICK_UP, a=LINEAR_A, v=LINEAR_V)
-    local Pn = selected_cell_pose(cell)
     local Pn_UP = pose_trans(Pn, p[0,0,APPROACH_DZ,0,0,0])
     movej(get_inverse_kin(Pn_UP), a=JOINT_A, v=JOINT_V)
     movel(Pn, a=LINEAR_A, v=LINEAR_V)
@@ -123,7 +100,37 @@ def triqui_controller():
       sleep(0.1)
       return True
     elif (MOTION_MODE == 1):
-      return move_to_cell_safe(cell)
+      textmsg("EXECUTE MODE1", cell)
+      if (cell == 1):
+        local Pn = P1
+      elif (cell == 2):
+        local Pn = P2
+      elif (cell == 3):
+        local Pn = P3
+      elif (cell == 4):
+        local Pn = P4
+      elif (cell == 5):
+        local Pn = P5
+      elif (cell == 6):
+        local Pn = P6
+      elif (cell == 7):
+        local Pn = P7
+      elif (cell == 8):
+        local Pn = P8
+      elif (cell == 9):
+        local Pn = P9
+      else:
+        textmsg("Invalid CELL", cell)
+        return False
+      end
+      local Pn_UP = pose_trans(Pn, p[0,0,APPROACH_DZ,0,0,0])
+      textmsg("MODE1 COMMAND", cell)
+      textmsg("MODE1 TARGET", Pn)
+      textmsg("MODE1 TARGET UP", Pn_UP)
+      textmsg("MODE1 BEFORE MOVEJ", cell)
+      movej(get_inverse_kin(Pn_UP), a=0.20, v=0.10)
+      textmsg("MODE1 MOVE COMPLETE", cell)
+      return True
     elif (MOTION_MODE == 2):
       return prepare_pick_and_place(cell)
     else:
@@ -149,6 +156,9 @@ def triqui_controller():
       if (command == COMMAND_IDLE):
         # Remain READY.
       else:
+        if (MOTION_MODE == 1):
+          textmsg("RECEIVED COMMAND", command)
+        end
         controller_status = STATUS_BUSY
         write_port_register(STATUS_REGISTER, controller_status)
         textmsg("BUSY CELL", command)
