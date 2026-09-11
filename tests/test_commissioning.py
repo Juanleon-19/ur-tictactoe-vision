@@ -474,14 +474,154 @@ def test_manual_evidence_requires_all_confirmations(make_runner, step):
     assert not r.fake_robot.writes
 
 
-def test_c14_records_specific_runtime_preconditions_without_claiming_execution(make_runner):
+def test_c14_requires_motion_authorization_before_io(make_runner):
     r = make_runner()
     result = r.run(["C14"]).results[0]
     assert result.status == "BLOCKED"
-    assert result.observed["prerequisites_verified"] is True
-    assert result.observed["runtime_test_executed"] is False
-    assert result.observed["pending"] == "runtime_vision_game_acceptance"
+    assert "runtime_test_executed" not in result.observed
+    assert not r.fake_cameras
     assert not r.fake_robot.writes
+
+
+@pytest.mark.parametrize("full_game", [False, True, "continue"])
+def test_c14_productive_runtime_observer_game_acceptance(make_runner, full_game):
+    r, robot, prompts = c14_runner(make_runner, full_game=full_game)
+    result = r.run(["C14"]).results[0]
+    assert result.status == "PASS", result
+    assert result.observed["scope"] == ("full_game" if full_game else "one_turn")
+    assert result.observed["completed_robot_turns"] == robot.connects == robot.closes
+    assert robot.connects >= (2 if full_game else 1)
+    assert result.observed["final_runtime_state"] == ("GAME_OVER" if full_game else "WAITING_HUMAN")
+    commands = [value for value in robot.writes if value]
+    assert len(commands) == len(set(commands)) == robot.connects
+    assert robot.writes == [value for cell in commands for value in (cell, 0)]
+    events = result.observed["modbus_events"]
+    assert [item["status"] for item in events if "status" in item] == [0, 1, 2, 0] * robot.connects
+    assert sum("Autoriza UN turno" in prompt for prompt in prompts) == robot.connects
+    for turn in result.observed["turns"]:
+        if "robot_cell" in turn:
+            assert turn["robot_cell"] in turn["verified_occupied"]
+            assert turn["home_confirmed"] is True
+    assert r.fake_cameras[0].open_count == r.fake_cameras[0].close_count == 1
+
+
+@pytest.mark.parametrize("failure,status,writes", [
+    ("no_authorization", "BLOCKED", 0), ("abort", "SKIPPED", 0),
+    ("missing_piece", "FAIL", 1), ("transport", "FAIL", 1),
+    ("home", "FAIL", 2), ("camera", "FAIL", 1),
+])
+def test_c14_fails_closed_without_retry(make_runner, failure, status, writes):
+    r, robot, _ = c14_runner(make_runner, failure=failure)
+    results = r.run(["C14", "C6"]).results
+    assert results[0].status == status, results[0]
+    assert len(robot.writes) == writes
+    assert robot.connects == robot.closes
+    assert not robot.active
+    assert r.fake_cameras[0].closed
+    if writes == 1:
+        assert robot.writes[0] != 0
+    if status == "FAIL":
+        assert results[1].status == "SKIPPED"
+
+
+def c14_runner(make_runner, *, full_game=False, failure=None):
+    from ur_tictactoe.communication import ModbusConnectionError
+    r = make_runner(allow_motion=True, timeout=None)
+    visible = r.fake_visible
+    prompts = []
+
+    class LiveRobot(Robot):
+        active = False
+        connects = closes = 0
+
+        def connect(self):
+            assert not self.active
+            self.active = True
+            self.connects += 1
+
+        def read_status(self):
+            assert self.active
+            if failure == "transport" and self.writes:
+                raise ModbusConnectionError("test disconnect")
+            return super().read_status()
+
+        def write_command(self, cell):
+            assert self.active
+            if cell:
+                assert cell + 9 in visible
+                if failure != "missing_piece":
+                    visible.remove(cell + 9)
+            else:
+                assert len(visible) <= 7  # ACK only after both physical occupations.
+            super().write_command(cell)
+
+        def close(self):
+            assert self.active
+            self.active = False
+            self.closes += 1
+
+    robot = LiveRobot()
+    r.modbus_factory = lambda *args, **kwargs: robot
+    original_detect = r.detector_factory
+    if failure == "camera":
+        def factory(*args):
+            detector = original_detect(*args)
+            detect = detector.detect
+            def capture(frame):
+                if robot.writes:
+                    raise RuntimeError("test camera failure")
+                return detect(frame)
+            detector.detect = capture
+            return detector
+        r.detector_factory = factory
+
+    def ask(message):
+        assert not robot.active, message
+        prompts.append(message)
+        r.sleep(120)  # Human pauses must never consume a connected turn deadline.
+        if "Continuar esta misma" in message:
+            return "YES" if full_game == "continue" else "no"
+        if "partida completa" in message:
+            return "YES" if full_game is True else "no"
+        if "Autoriza observación" in message:
+            visible.remove(min(visible))
+        if "Autoriza UN turno" in message:
+            if failure == "no_authorization":
+                return "no"
+            if failure == "abort":
+                return "ABORT"
+        if "retornó físicamente" in message and failure == "home":
+            return "no"
+        return "YES"
+    r.ask = ask
+    return r, robot, prompts
+
+
+@pytest.mark.parametrize("step", ["C12", "C13"])
+@pytest.mark.parametrize("override,expected", [(None, "PASS"), (15.0, "FAIL"), (60.0, "PASS")])
+def test_pick_place_timeout_allows_realistic_duration_and_explicit_override(make_runner, step, override, expected):
+    r = make_runner(allow_motion=True, timeout=override)
+    robot = r.fake_robot
+    read, write = robot.read_status, robot.write_command
+    started = [0.0]
+    def command(cell):
+        started[0] = r.clock()
+        write(cell)
+    def status():
+        if robot.status == 1 and r.clock() - started[0] < 20:
+            return 1
+        return read()
+    robot.read_status, robot.write_command = status, command
+    result = r.run([step]).results[0]
+    assert result.status == expected, result
+    assert result.observed["timeout_seconds"] == (60 if override is None else override)
+    assert robot.closed
+
+
+def test_default_timeout_keeps_quick_steps_short(make_runner):
+    r = make_runner(allow_motion=True, timeout=None)
+    r.run(["C12", "C6", "C7"])
+    assert r.timeout == 15
 
 
 def test_json_report_is_valid_and_has_safe_configuration(make_runner, tmp_path):

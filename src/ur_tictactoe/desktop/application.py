@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from threading import Lock, Thread
+from dataclasses import dataclass, replace
+from threading import Event, Lock, Thread, current_thread
 
 from ur_tictactoe.communication import STATUS_BUSY, STATUS_DONE, STATUS_READY
 from ur_tictactoe.config import load_vision_config
@@ -19,7 +19,8 @@ from ur_tictactoe.game import (
     PICARO_ACTION,
     GameSession,
 )
-from ur_tictactoe.runtime import PhysicalGameRuntime, RuntimeState
+from ur_tictactoe.runtime import PhysicalGameRuntime, RuntimeState, RuntimeSnapshot
+from ur_tictactoe.communication.robot_recovery import BUSY_WARNING
 from ur_tictactoe.vision.aruco import ARUCO_PROFILES
 from ur_tictactoe.vision.board_observer import CellState, PhysicalBoardState
 
@@ -43,6 +44,15 @@ class ApplicationSnapshot:
     robot_picaro_available: bool
     human_picaro_available: bool
     action_status: str | None
+
+
+@dataclass(frozen=True)
+class CancelledGame:
+    """Immutable evidence from a game retired by explicit recovery."""
+
+    snapshot: RuntimeSnapshot
+    command_sent: bool
+    cause: str | None
 
 
 class SimulatedModbusClient:
@@ -82,7 +92,16 @@ class GameApplication:
         self.camera_feedback = "Solo para esta sesión"
         self.detected_cameras: list[str] = []
         self._camera_worker: Thread | None = None
+        self._robot_worker: Thread | None = None
+        self.robot_busy = False
+        self.robot_feedback = "Consulta de estado sin movimientos."
+        self.cancelled_games: list[CancelledGame] = []
+        self._game_notice: str | None = None
         self._closing = False
+        self._shutdown_complete = Event()
+        self._shutdown_worker: Thread | None = None
+        self.shutdown_error: str | None = None
+        self._restart_waiting_board = False
         self._lifecycle_lock = Lock()
         self.session: GameSession | None = None
         self.runtime: PhysicalGameRuntime | None = None
@@ -100,6 +119,7 @@ class GameApplication:
                     self.config.robot_host,
                     self.config.robot_port,
                     self.config.aruco_profile,
+                    dashboard_enabled=True,
                 )
             except Exception as exc:
                 self._last_error = f"CAMERA_CONFIG_ERROR: {exc}"
@@ -107,7 +127,7 @@ class GameApplication:
     def set_aruco_profile(self, profile: str) -> bool:
         """Session-only command, called on the same UI thread as update()."""
         self.profile_change_error = None
-        if self.camera_busy:
+        if self.camera_busy or self.robot_busy or self._closing:
             self.profile_change_error = "Espere a que termine la operación de cámara."
             return False
         if not self.simulation and self.runtime is not None and (
@@ -136,16 +156,18 @@ class GameApplication:
         return (not self.simulation and self.runtime is not None
                 and self.runtime.state != RuntimeState.GAME_OVER)
 
-    def _camera_operation(self, operation, message: str, success_message=None) -> bool:
-        if self.physical_game_active or self.camera_busy or self._closing:
-            self.camera_feedback = "Operación bloqueada: partida física activa u operación en curso."
-            return False
-        if self.simulation or self.real_backend is None:
-            self.camera_feedback = "Cámara no disponible en este modo."
-            return False
-        self.camera_busy = True
+    def _camera_operation(self, operation, message: str, success_message=None, *, clear_observation=True) -> bool:
+        with self._lifecycle_lock:
+            if self.physical_game_active or self.camera_busy or self.robot_busy or self._closing:
+                self.camera_feedback = "Operación bloqueada: partida física activa u operación en curso."
+                return False
+            if self.simulation or self.real_backend is None:
+                self.camera_feedback = "Cámara no disponible en este modo."
+                return False
+            self.camera_busy = True
         self.camera_feedback = message
-        self._last_observation = None
+        if clear_observation:
+            self._last_observation = None
 
         def work():
             try:
@@ -165,12 +187,143 @@ class GameApplication:
                 if closing:
                     self.real_backend.close()
 
-        self._camera_worker = Thread(target=work, daemon=True, name="desktop-camera")
-        self._camera_worker.start()
+        with self._lifecycle_lock:
+            if self._closing:
+                self.camera_busy = False
+                return False
+            self._camera_worker = Thread(target=work, daemon=False, name="desktop-camera")
+            self._camera_worker.start()
         return True
 
     def open_async(self) -> bool:
-        return self._camera_operation(self.open, "Inicializando cámara...")
+        return self._camera_operation(lambda: self.real_backend.open(), "Inicializando cámara...")
+
+    @property
+    def robot_query_allowed(self) -> bool:
+        return (not self.simulation and self.real_backend is not None
+                and not self.camera_busy and not self.robot_busy and not self._closing
+                and (self.runtime is None or self.runtime.state in (RuntimeState.ERROR, RuntimeState.GAME_OVER)))
+
+    def refresh_status(self) -> bool:
+        return self._robot_operation("refresh_status")
+
+    def reconnect_robot(self) -> bool:
+        return self._robot_operation("reconnect_robot")
+
+    @property
+    def robot_recovery_allowed(self) -> bool:
+        return (not self.simulation and self.real_backend is not None
+                and not self.camera_busy and not self.robot_busy and not self._closing
+                and (self.runtime is None or self.runtime.state in (RuntimeState.ERROR, RuntimeState.GAME_OVER)
+                     or (self.runtime.state == RuntimeState.WAITING_HUMAN and not self.runtime.command_sent)))
+
+    def recover_robot(self) -> bool:
+        return self._robot_operation("recover_robot")
+
+    @property
+    def system_restart_allowed(self) -> bool:
+        return not self._closing and not self.camera_busy and not self.robot_busy
+
+    def restart_system(self) -> bool:
+        if self.simulation:
+            with self._lifecycle_lock:
+                if not self.system_restart_allowed:
+                    return False
+                self._cancel_game_for_recovery()
+                self.runtime = self.session = None
+                self._physical_occupied.clear()
+                self._last_error = None
+                self.robot_feedback = "SISTEMA LISTO"
+                return True
+        return self._robot_operation("restart_system")
+
+    def _cancel_game_for_recovery(self) -> None:
+        if self.runtime is None:
+            self.session = None
+            return
+        if self.runtime.state == RuntimeState.GAME_OVER:
+            self.runtime.stop()
+            self.runtime = self.session = None
+            return
+        self.cancelled_games.append(CancelledGame(
+            self.runtime.snapshot(), self.runtime.command_sent,
+            str(self.runtime.error_cause) if self.runtime.error_cause else None,
+        ))
+        # Only stop software progression/close its socket. No acknowledgement here.
+        self.runtime.stop("PARTIDA_CANCELADA_POR_RECUPERACION")
+        self.runtime = None
+        self.session = None
+        self._last_error = None  # The retired game's original error remains in history.
+        self._game_notice = "PARTIDA CANCELADA · REQUIERE NUEVA PARTIDA"
+
+    @staticmethod
+    def _availability_error(error: str | None) -> bool:
+        return bool(error and error.startswith((
+            "MODBUS_", "ModbusConnectionError", "ModbusResponseError",
+            "HARDWARE_NOT_AVAILABLE", "ROBOT_REQUIRES_RECOVERY",
+        )))
+
+    def _robot_operation(self, action: str) -> bool:
+        restart = action == "restart_system"
+        recovery = action in ("recover_robot", "restart_system")
+        with self._lifecycle_lock:
+            allowed = (self.system_restart_allowed and self.real_backend is not None if restart else
+                       self.robot_recovery_allowed if recovery else self.robot_query_allowed)
+            if not allowed:
+                self.robot_feedback = (BUSY_WARNING if self.runtime and self.runtime.state == RuntimeState.ROBOT_BUSY
+                                       else "Operación bloqueada: partida activa u operación en curso.")
+                return False
+            self.robot_busy = True
+            if restart:
+                self._restart_waiting_board = False
+            if recovery:
+                self._cancel_game_for_recovery()
+        self.robot_feedback = "Reiniciando sistema..." if restart else "Recuperando robot mediante COMMAND0..." if recovery else "Consultando STATUS129..."
+
+        def work():
+            try:
+                previous_error = self.real_backend.last_error
+                recovered = getattr(self.real_backend, "recover_robot" if restart else action)()
+                if restart and recovered and not self._closing:
+                    self.real_backend.reset_board_observation()
+                    self._restart_waiting_board = True
+                self._last_observation = self.real_backend.last_observation
+                if (self.real_backend.last_error or self._last_error == previous_error
+                        or self._availability_error(self._last_error)):
+                    self._last_error = self.real_backend.last_error
+                self.robot_feedback = ("ROBOT RECUPERADO · READY" if recovery and recovered else
+                                       self.real_backend.robot_error or "Estado actualizado. Sin escrituras ni movimientos.")
+                if restart:
+                    self.robot_feedback = ("Robot listo. Esperando estabilización del tablero." if recovered else
+                                           "Robot en movimiento. Espere o use la parada física." if self.real_backend.controller_status == "BUSY" else
+                                           "No se pudo conectar con el robot. Revise Ethernet y PolyScope." if self.real_backend.modbus_status == "ERROR" else
+                                           "No se pudo reiniciar el robot. Revise PolyScope y el diagnóstico.")
+                    if not recovered and self.real_backend.controller_status == "DESCONOCIDO":
+                        self.robot_feedback = "No se conoce el estado del robot. Revise Ethernet, PolyScope y el diagnóstico."
+                    if not recovered and "No se recibió READY" in (self.real_backend.robot_error or ""):
+                        self.robot_feedback = "El robot no confirmó que estuviera listo a tiempo. Revise PolyScope."
+                    if recovered and self.real_backend.camera_status != "CONECTADA":
+                        self.robot_feedback = "Robot listo. Cámara no conectada: use RECONECTAR CÁMARA."
+                if self._game_notice:
+                    self.robot_feedback += "\n" + self._game_notice
+                if self.runtime and self.runtime.state == RuntimeState.ERROR:
+                    self.robot_feedback += " La partida sigue detenida; revisar su error y el estado físico."
+            except Exception as exc:
+                self.robot_feedback = f"ROBOT_DIAGNOSTIC_ERROR: {exc}"
+            finally:
+                with self._lifecycle_lock:
+                    closing = self._closing
+                    self.robot_busy = False
+                if closing:
+                    self.real_backend.close()
+
+        with self._lifecycle_lock:
+            if self._closing:
+                self.robot_busy = False
+                return False
+            self._robot_worker = Thread(target=work, daemon=False, name="desktop-robot-diagnostic")
+            self._robot_worker.start()
+        return True
 
     def apply_camera(self, index: int, backend: str) -> bool:
         return self._camera_operation(
@@ -187,8 +340,9 @@ class GameApplication:
 
         def detect():
             current = self.real_backend.camera_config
-            known = current.index if (self.real_backend.camera_status == "CONECTADA"
-                                      and backend == current.backend) else None
+            # Never probe the capture we own, even when selecting another backend
+            # or after a read failure (the local handle may still be alive).
+            known = current.index if self.real_backend._camera_open else None
             self.detected_cameras = [f"Camera {i}" for i in detect_local_cameras(backend, known)]
             return True
 
@@ -196,10 +350,11 @@ class GameApplication:
             detect, "Detectando cámaras...",
             lambda: ("Disponibles: " + ", ".join(self.detected_cameras)
                      if self.detected_cameras else "No se detectaron cámaras disponibles."),
+            clear_observation=False,
         )
 
     def reset_board_observation(self) -> bool:
-        if self.physical_game_active or self.camera_busy or self._closing:
+        if self.physical_game_active or self.camera_busy or self.robot_busy or self._closing:
             self.camera_feedback = "Operación bloqueada: partida física activa u operación en curso."
             return False
         if self.simulation or self.real_backend is None:
@@ -214,22 +369,82 @@ class GameApplication:
         """Open real resources; simulation has no external lifecycle."""
         if self.simulation:
             return True
-        if self.real_backend is None:
+        if self.real_backend is None or self.camera_busy or self.robot_busy or self._closing:
             return False
         opened = self.real_backend.open()
         self._last_error = self.real_backend.last_error
         return opened
 
     def close(self) -> None:
+        self.shutdown_all()
+
+    @property
+    def shutdown_complete(self) -> bool:
+        return (self._shutdown_complete.is_set()
+                and not any(worker and worker.is_alive() for worker in
+                            (self._camera_worker, self._robot_worker, self._shutdown_worker)))
+
+    @property
+    def shutdown_warning(self) -> str | None:
+        if (self.runtime and (self.runtime.command_sent or self.runtime.state == RuntimeState.ROBOT_BUSY)
+                or self.real_backend and getattr(self.real_backend, "controller_status", None) == "BUSY"):
+            return "El robot puede seguir en movimiento. Cerrar la aplicación no lo detiene. Use la parada física si hay riesgo."
+        return None
+
+    def shutdown_all(self, *, wait=False) -> None:
+        """Block actions, cancel locally, join workers and release resources.
+
+        A native OpenCV open cannot be interrupted safely. The window waits in
+        closing state until the driver returns and cleanup actually finishes.
+        """
         with self._lifecycle_lock:
-            self._closing = True
-            if self.camera_busy:
-                return  # The worker releases resources after the driver returns.
-        if self.real_backend is not None:
-            self.real_backend.close()
+            if not self._closing:
+                self._closing = True
+                self._restart_waiting_board = False
+                if self.runtime is not None:
+                    self._cancel_game_for_recovery()
+                self.robot_feedback = "Cerrando. Esperando liberación de dispositivos..."
+
+                def cleanup():
+                    try:
+                        for worker in (self._camera_worker, self._robot_worker):
+                            if worker is not None and worker is not current_thread():
+                                worker.join()
+                        if self.real_backend is not None:
+                            self.real_backend.close()
+                            error = self.real_backend.last_error
+                            if error and "CLOSE_ERROR" in error:
+                                self.shutdown_error = error
+                    except Exception as exc:
+                        self.shutdown_error = f"SHUTDOWN_ERROR: {exc}"
+                    finally:
+                        self._shutdown_complete.set()
+
+                if any(worker and worker.is_alive() for worker in (self._camera_worker, self._robot_worker)):
+                    self._shutdown_worker = Thread(target=cleanup, daemon=False, name="desktop-shutdown")
+                    self._shutdown_worker.start()
+                else:
+                    cleanup()
+        if wait:
+            self._shutdown_complete.wait()
+            if self._shutdown_worker is not None:
+                self._shutdown_worker.join()
 
     def new_game(self, difficulty: str, human_first: bool, *, seed: int | None = None) -> bool:
-        if self.camera_busy:
+        # Serialize authorization with recovery and the runtime's next transition.
+        with self._lifecycle_lock:
+            return self._new_game(difficulty, human_first, seed=seed)
+
+    def _new_game(self, difficulty: str, human_first: bool, *, seed: int | None = None) -> bool:
+        if not self.simulation and self.runtime and (
+            self.runtime.command_sent or self.runtime.state in (
+                RuntimeState.WAITING_ROBOT, RuntimeState.ROBOT_BUSY,
+                RuntimeState.VERIFYING_ROBOT, RuntimeState.ACKNOWLEDGING_ROBOT,
+            )
+        ):
+            self._last_error = "ROBOT_TURN_UNRESOLVED_CHECK_PHYSICAL_STATE"
+            return False
+        if self.camera_busy or self.robot_busy or self._closing:
             self._last_error = "CAMERA_INITIALIZING"
             return False
         if difficulty not in (HARD, INTERMEDIATE, PICARO):
@@ -241,11 +456,34 @@ class GameApplication:
             self._last_error = "PICARO_SIMULATION_ONLY"
             return False
 
+        if not self.simulation:
+            if self.runtime and self.runtime.state == RuntimeState.ERROR:
+                self._last_error = "ROBOT_REQUIRES_RECOVERY: partida detenida; pulse REINICIAR SISTEMA."
+                return False
+            backend = self.real_backend
+            if backend is None or backend.camera_status != "CONECTADA":
+                self._last_error = "CAMERA_NOT_CONNECTED"
+                return False
+            observation = self._last_observation
+            if observation is None or not observation.ready:
+                self._last_error = "BOARD_NOT_READY"
+                return False
+            if observation.uncertain_cells or observation.occupied_cells:
+                self._last_error = "BOARD_UNCERTAIN" if observation.uncertain_cells else "BOARD_NOT_EMPTY"
+                return False
+            # Explicit start checks accessibility/READY afresh, read-only. Never reset.
+            if not backend.refresh_status():
+                self._last_error = backend.last_error or "HARDWARE_NOT_AVAILABLE"
+                if backend.robot_status == "REQUIERE RECUPERACIÓN":
+                    self._last_error = "ROBOT_REQUIRES_RECOVERY: Robot requiere recuperación. Pulse REINICIAR SISTEMA."
+                return False
+
         self.session = GameSession(difficulty, human_first, seed=seed)
         self._physical_occupied = set()
         self._last_error = None
         self._action_status = None
         self._action_status_ticks = 0
+        self._game_notice = None
         if self.simulation:
             self.runtime = PhysicalGameRuntime(self.session, SimulatedModbusClient())
             return self.runtime.start(self._physical_state())
@@ -264,7 +502,7 @@ class GameApplication:
             return False
 
         self.runtime = PhysicalGameRuntime(
-            self.session, self.real_backend.modbus_client
+            self.session, self.real_backend.modbus_client, manage_connection=True
         )
         started = self.runtime.start(self._last_observation)
         self._last_error = self.runtime.last_error
@@ -301,6 +539,8 @@ class GameApplication:
 
     def update(self) -> None:
         """Advance at most one simulated transition for a Tkinter ``after`` tick."""
+        if self._closing:
+            return
         if self._action_status_ticks > 0:
             self._action_status_ticks -= 1
             if self._action_status_ticks == 0:
@@ -325,14 +565,33 @@ class GameApplication:
                     self.runtime.update_board(self._physical_state())
 
     def _update_real(self) -> None:
-        if self.real_backend is None or self.camera_busy or self._closing:
+        if self.real_backend is None or self.camera_busy or self.robot_busy or self._closing:
             return
         observation = self.real_backend.tick()
         self._last_observation = observation
         if self.real_backend.last_error:
             self._last_error = self.real_backend.last_error
         if self.real_backend.camera_status == "ERROR":
+            if self._restart_waiting_board:
+                self.robot_feedback = "No se recibe imagen. Use RECONECTAR CÁMARA."
+            if self.runtime and self.runtime.state not in (RuntimeState.ERROR, RuntimeState.GAME_OVER):
+                self.runtime.stop("CAMERA_ERROR")
             return
+        with self._lifecycle_lock:
+            if not self.robot_busy and not self._closing:
+                self._advance_real_runtime(observation)
+
+    def _advance_real_runtime(self, observation) -> None:
+        if self._restart_waiting_board:
+            if self.real_backend.camera_status != "CONECTADA":
+                self.robot_feedback = "Cámara no conectada. Use RECONECTAR CÁMARA."
+            elif observation and observation.ready and not observation.uncertain_cells:
+                if observation.occupied_cells:
+                    self.robot_feedback = "Retire las fichas del tablero para iniciar otra partida."
+                elif self.real_backend.robot_status == "LISTO":
+                    self.robot_feedback = "SISTEMA LISTO"
+                    self._last_error = self.real_backend.last_error
+                    self._restart_waiting_board = False
         if self.runtime is None or observation is None:
             return
         if self.runtime.state in (RuntimeState.ERROR, RuntimeState.GAME_OVER):
@@ -340,8 +599,12 @@ class GameApplication:
         if self.runtime.state in (
             RuntimeState.WAITING_ROBOT,
             RuntimeState.ROBOT_BUSY,
+            RuntimeState.ACKNOWLEDGING_ROBOT,
         ):
-            self.runtime.poll_robot()
+            status = self.runtime.poll_robot()
+            record_status = getattr(self.real_backend, "record_robot_status", None)
+            if record_status is not None:
+                record_status(status, self.runtime.error_cause)
         elif self.runtime.state in (
             RuntimeState.WAITING_HUMAN,
             RuntimeState.VERIFYING_ROBOT,
@@ -351,7 +614,14 @@ class GameApplication:
     def diagnostic_snapshot(self) -> DiagnosticSnapshot:
         if self.simulation or self.real_backend is None:
             return DiagnosticSnapshot(profile=self._session_profile)
-        return self.real_backend.diagnostic_snapshot()
+        history = tuple(
+            f"PARTIDA CANCELADA · REQUIERE NUEVA PARTIDA\n"
+            f"Estado anterior: {entry.snapshot.state.value}; error: {entry.snapshot.last_error}\n"
+            f"COMMAND posiblemente entregado: {entry.command_sent}; pending_robot_move: {entry.snapshot.pending_robot_move}\n"
+            f"Tablero lógico: {entry.snapshot.board}; causa: {entry.cause or '—'}"
+            for entry in self.cancelled_games
+        )
+        return replace(self.real_backend.diagnostic_snapshot(), game_history=history)
 
     def snapshot(self) -> ApplicationSnapshot:
         if self.session is None:
@@ -380,7 +650,7 @@ class GameApplication:
                 simulation=self.simulation,
                 robot_picaro_available=False,
                 human_picaro_available=False,
-                action_status=None,
+                action_status=self._game_notice,
             )
 
         runtime_snapshot = self.runtime.snapshot() if self.runtime else None
@@ -434,8 +704,10 @@ class GameApplication:
             return "EN MOVIMIENTO"
         if state == RuntimeState.VERIFYING_ROBOT:
             return "MOVIMIENTO TERMINADO"
+        if state == RuntimeState.ACKNOWLEDGING_ROBOT:
+            return "ESPERANDO READY"
         if state == RuntimeState.ERROR:
-            return "ERROR"
+            return "ERROR" if self.simulation else "REQUIERE RECUPERACIÓN"
         return "LISTO"
 
     def _board_status(self) -> str:

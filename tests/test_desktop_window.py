@@ -17,6 +17,34 @@ def test_friendly_vision_profile_mapping():
     assert VISION_PROFILES == {"Robusto": "robust", "Reflejos": "robust_glare", "Estándar": "default"}
 
 
+def _widgets(parent):
+    for child in parent.winfo_children():
+        yield child
+        yield from _widgets(child)
+
+
+def _check_product_home(window, *, simulation):
+    import customtkinter as ctk
+    window.root.update()
+    widgets = list(_widgets(window.container))
+    buttons = [w.cget("text") for w in widgets if isinstance(w, ctk.CTkButton)]
+    assert buttons.count("REINICIAR SISTEMA") == 1
+    assert "ACTUALIZAR ESTADO" not in buttons and "RECUPERAR ROBOT" not in buttons
+    assert not any(isinstance(w, ctk.CTkCheckBox) for w in widgets)
+    assert set(window.home_status_labels) == {"Cámara", "Robot", "Tablero"}
+    assert window.picaro_radio.cget("state") == ("normal" if simulation else "disabled")
+    radios = {w.cget("text"): w for w in widgets if isinstance(w, ctk.CTkRadioButton)}
+    assert set(radios) == {"Experto", "Intermedio", "Pícaro", "Robot", "Humano"}
+    assert all(w.winfo_ismapped() for w in radios.values())
+    for widget in radios.values():
+        assert widget.winfo_y() + widget.winfo_height() <= widget.master.winfo_height()
+    for w in _widgets(window.root):
+        if isinstance(w, ctk.CTkLabel):
+            assert "Proyecto académico" not in w.cget("text")
+            assert "Pontificia Universidad Javeriana" not in w.cget("text")
+    assert window.exit_button.winfo_ismapped()
+
+
 def _check_header(window):
     window.root.update()
     assert window._logo_image.cget("size") == (260, 130)
@@ -26,7 +54,7 @@ def _check_header(window):
     assert window.title_label.winfo_x() >= window.logo_label.winfo_x() + window.logo_label.winfo_width()
     assert window.mode_badge.winfo_x() >= window.title_label.winfo_x() + window.title_label.winfo_width()
     assert window.mode_badge.winfo_x() + window.mode_badge.winfo_width() <= window.header.winfo_width()
-    assert window.academic_label.winfo_y() + window.academic_label.winfo_height() <= window.header.winfo_height()
+    assert not hasattr(window, "academic_label")
     assert window.header.winfo_y() + window.header.winfo_height() <= window.tabs.winfo_y()
 
 
@@ -39,7 +67,7 @@ def _check_simulation() -> None:
         window.root.update()
         assert window._logo_image is not None
         _check_header(window)
-        assert window.academic_label.cget("text") == "Proyecto académico\nPontificia Universidad Javeriana"
+        _check_product_home(window, simulation=True)
         assert window.author_footer.cget("text") == "By: Juan Esteban León Saiz"
         before = app.snapshot()
         window.tabs.set("CÁMARA / DIAGNÓSTICO")
@@ -157,7 +185,8 @@ def _check_profile_live() -> None:
         assert window._preview_image is not None
         assert window.active_profile.cget("text") == "Perfil activo: Reflejos"
         assert camera.open_calls == backend.modbus_client.connect_calls == 1
-        assert camera.close_calls == backend.modbus_client.close_calls == 0
+        assert camera.close_calls == 0
+        assert backend.modbus_client.close_calls == 1
         for geometry in ("900x620", "1366x768"):
             window.root.geometry(geometry)
             window.root.update()
@@ -190,6 +219,12 @@ def _check_real() -> None:
     assert not app.open()
     window = DesktopWindow(app)
     try:
+        _check_product_home(window, simulation=False)
+        window._start_game()
+        window.root.update()
+        feedback = window.robot_controls.feedback
+        assert "RECONECTAR CÁMARA" in feedback.cget("text")
+        assert feedback.winfo_y() + feedback.winfo_height() <= feedback.master.winfo_height()
         window.tabs.set("CÁMARA / DIAGNÓSTICO")
         window._render_diagnostics()
         window.root.update()
@@ -200,7 +235,8 @@ def _check_real() -> None:
     finally:
         window.root.destroy()
         app.close()
-    assert backend.camera.close_calls == backend.modbus_client.close_calls == 1
+    assert backend.camera.close_calls == 1
+    assert backend.modbus_client.close_calls == 2
 
 
 def _check_operator_layout():
@@ -223,15 +259,31 @@ def _check_operator_layout():
             window._render_diagnostics()
             window.root.update()
             _check_header(window)
-            for button in [window.apply_profile_button, *window.camera_controls.buttons]:
+            for button in [window.apply_profile_button, *window.camera_controls.buttons[2:]]:
                 assert button.cget("state") == "disabled"
                 button.invoke()
                 assert button.winfo_ismapped()
                 assert button.winfo_x() + button.winfo_width() <= button.master.winfo_width()
                 assert button._text_label.winfo_reqwidth() <= button.winfo_width() - 10
             assert window.camera_preview.winfo_height() > 70
+            assert isinstance(window.profile_selector, ctk.CTkSegmentedButton)
+            controls = window.camera_controls
+            assert not controls.advanced.winfo_ismapped()
+            controls.advanced_button.invoke()
+            window.root.update()
+            assert controls.backend_selector.winfo_ismapped()
+            assert controls.selector.winfo_ismapped()
+            for button in controls.buttons[:2]:
+                assert button.winfo_ismapped()
+                assert button.cget("state") == "disabled"
+            controls.advanced_button.invoke()
             panel = window.camera_details
             assert panel.detail_button.winfo_ismapped()
+            assert panel.comparison_button.winfo_ismapped()
+            panel.comparison_button.invoke()
+            window.root.update()
+            assert panel.detail_window.winfo_exists()
+            panel.detail_window.destroy()
             assert panel.detail_button.winfo_rooty() + panel.detail_button.winfo_height() <= panel.winfo_rooty() + panel.winfo_height()
             for value in panel.values.values():
                 assert value.winfo_rootx() + value.winfo_width() <= panel.winfo_rootx() + panel.winfo_width()
@@ -240,7 +292,8 @@ def _check_operator_layout():
             help_panel = window.help_panel
             help_panel.history = {f"C{i}": CommissioningStatus("test.json", {f"C{i}": "PASS"}, "date", "sha")
                                   for i in range(1, 5)}
-            help_panel.section.set("Puesta en marcha")
+            help_panel.section.set("INFORMACIÓN TÉCNICA")
+            help_panel.advanced_section.set("Puesta en marcha")
             help_panel.select_section()
             window.root.update()
             help_panel.procedure_button.invoke()
@@ -249,7 +302,8 @@ def _check_operator_layout():
                 help_panel.show_procedure(f"C{step}")
                 window.root.update_idletasks()
                 assert help_panel.content.winfo_children()
-            help_panel.section.set("Solucionar problema")
+            help_panel.section.set("INFORMACIÓN TÉCNICA")
+            help_panel.advanced_section.set("Solucionar problema")
             help_panel.select_section()
             for problem in PROBLEMS:
                 help_panel.show_problem(problem)
@@ -285,7 +339,7 @@ def _check_camera_button_routing():
         controls.backend.set("MSMF")
         for button in controls.buttons:
             button.invoke()
-        assert calls == [("detect", "MSMF"), ("apply", 3, "MSMF"), ("reconnect",), ("reset",)]
+        assert calls == [("detect", "MSMF"), ("apply", 3, "MSMF"), ("reconnect",)]
         assert app.real_backend.camera.open_calls == 0
         assert app.real_backend.modbus_client.connect_calls == 0
     finally:
@@ -293,7 +347,105 @@ def _check_camera_button_routing():
         app.close()
 
 
-@pytest.mark.parametrize("check", ["_check_simulation", "_check_real", "_check_profile_live", "_check_operator_layout", "_check_camera_button_routing"])
+def _check_robot_recovery():
+    from test_real_backend import RecordingObserver, physical
+    from ur_tictactoe.communication.dashboard_client import DashboardSnapshot
+    backend = make_backend(modbus=FakeModbus(connect_error=RuntimeError("offline")),
+                           observer=RecordingObserver(physical()))
+    app = GameApplication(False, real_backend=backend)
+    app.open()
+    app.update()
+    fresh = FakeModbus()
+    backend._modbus_factory = lambda: fresh
+    backend._dashboard_client = type("Dashboard", (), {
+        "snapshot": lambda self: DashboardSnapshot("DISPONIBLE", "PAUSADO", "IDLE", "fake")
+    })()
+    window = DesktopWindow(app)
+    try:
+        window.root.update()
+        controls = window.robot_controls
+        assert controls.restart_button.cget("text") == "REINICIAR SISTEMA"
+        assert app.snapshot().robot_status == "ERROR DE CONEXIÓN"
+        button = controls.restart_button
+        assert button.winfo_ismapped()
+        assert button._text_label.winfo_reqwidth() <= button.winfo_width() - 10
+        button.invoke()
+        app._robot_worker.join(3)
+        assert not app.robot_busy
+        assert app.snapshot().robot_status == "LISTO"
+        backend.observer = RecordingObserver(physical())
+        app.update()
+        controls.refresh()
+        assert controls.feedback.cget("text") == "SISTEMA LISTO"
+        assert backend.camera.open_calls == 1 and backend.camera.close_calls == 0
+        assert fresh.commands == [0]
+        window.tabs.set("CÁMARA / DIAGNÓSTICO")
+        window._render_diagnostics()
+        assert "Controlador: READY" in window.robot_diagnostics.cget("text")
+        assert "PolyScope: PAUSADO" in window.robot_diagnostics.cget("text")
+        assert "camera_open_seconds" in window.camera_details.detail_text
+        assert "Dashboard 29999: DISPONIBLE" in window.camera_details.detail_text
+    finally:
+        window.root.destroy()
+        app.close()
+
+
+def _check_shutdown(route):
+    from threading import Event
+    from test_explicit_robot_recovery import FakeDashboard
+    entered, release = Event(), Event()
+    backend = make_backend()
+    backend._dashboard_client = FakeDashboard()
+    original_open = backend.camera.open
+    def blocked_open():
+        entered.set()
+        assert release.wait(10)
+        original_open()
+    backend.camera.open = blocked_open
+    app = GameApplication(False, real_backend=backend)
+    window = DesktopWindow(app)
+    calls = []
+    cleanup = app.shutdown_all
+    def record_cleanup(**kwargs):
+        calls.append("shutdown")
+        cleanup(**kwargs)
+    app.shutdown_all = record_cleanup
+    try:
+        assert app.open_async() and entered.wait(2)
+        assert window.exit_button.cget("command") == window._shutdown_callback
+        if route == "exit":
+            window.exit_button.invoke()
+        else:
+            window.root.tk.call(window.root.protocol("WM_DELETE_WINDOW"))
+        assert calls == ["shutdown"]
+        assert not window._closed and window.root.winfo_exists()
+        assert app._closing and not app.shutdown_complete
+        assert not app.reconnect_camera()
+        release.set()
+        cleanup(wait=True)
+        window._finish_shutdown()
+        assert window._closed and app.shutdown_complete
+        assert not app._camera_worker.is_alive()
+        assert backend.camera.close_calls == 1
+        assert backend.modbus_client.close_calls >= 1
+        assert backend._dashboard_client.close_calls == 1
+        assert backend.modbus_client.commands == []
+    finally:
+        release.set()
+        cleanup(wait=True)
+        if not window._closed:
+            window.root.destroy()
+
+
+def _check_exit():
+    _check_shutdown("exit")
+
+
+def _check_window_x():
+    _check_shutdown("x")
+
+
+@pytest.mark.parametrize("check", ["_check_simulation", "_check_real", "_check_profile_live", "_check_operator_layout", "_check_camera_button_routing", "_check_robot_recovery", "_check_exit", "_check_window_x"])
 def test_desktop_process_acceptance(check) -> None:
     # CTk maintains process-global theme/scaling state. Each application launch
     # gets its own process, including the real-widget acceptance checks.

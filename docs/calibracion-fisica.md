@@ -1,9 +1,10 @@
 # Calibración física — Robot Triqui
 
 CB3 / PolyScope 3.14. El operador validó Assignments desde Point Features,
-aproximación Tool Z -40 mm, Robotiq open/close y la secuencia
+aproximación Tool Z -60 mm, Robotiq open/close y la secuencia
 PICK → close → UP → CELL5_UP → CELL5 → open → UP. C6/C7 también están validados.
-La integración completa debe aceptarse mediante C8–C14; esta entrega no movió hardware.
+Mode1 y Mode2 fueron probados: C12 y varios ciclos C13 funcionaron físicamente.
+Completar C13 y aceptar el end-to-end mediante C14. Esta iteración no ejecuta hardware.
 
 ## Configuración enseñada
 
@@ -19,7 +20,7 @@ poses. La interpolación solo usa XYZ y orientación de P1; recogida/HOME
 conservan sus orientaciones propias.
 
 Con el TCP probado, +Z Tool baja y -Z Tool sube.
-APPROACH_DZ=-0.040 eleva 40 mm mediante pose_trans(P, p[0,0,APPROACH_DZ,0,0,0]).
+APPROACH_DZ=-0.060 eleva 60 mm mediante pose_trans(P, p[0,0,APPROACH_DZ,0,0,0]).
 No aplicar esa distancia sobre Z base. Conservar movej a=0.20, v=0.10 y
 movel a=0.05, v=0.02; no optimizar todavía.
 
@@ -43,8 +44,9 @@ movel a=0.05, v=0.02; no optimizar todavía.
 9. C13: primero 1,3,7,9 y después 2,4,6,8. Antes de cada comando confirmar
    celda libre, ficha en PICK y zona despejada; después confirmar colocación
    y HOME. CELL5 ya está cubierta por C12.
-10. C14 registra precondiciones de la partida final. Falta adaptar el procedimiento
-    runtime/visión/juego; no confundir precondiciones con PASS end-to-end.
+10. C14: autorizar primero un turno humano+robot, desde tablero vacío hasta
+    verificación visual, acuse, READY y confirmación física de HOME. Después
+    seleccionar partida completa. Cada movimiento requiere confirmación.
 
 DONE acredita finalización del script, no agarre/colocación. Confirmar esos
 resultados físicamente y, en C14, con visión.

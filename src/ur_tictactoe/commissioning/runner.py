@@ -26,11 +26,13 @@ class Blocked(Exception):
 class Runner:
     def __init__(
         self, app_config, vision_config, *, allow_motion=False, window=10.0,
-        timeout=15.0, hold=1.0, ask=input, emit=print,
+        timeout=None, hold=1.0, ask=input, emit=print,
         clock=time.monotonic, sleep=time.sleep, camera_factory=Camera,
         detector_factory=ArucoDetector, observer_factory=BoardObserver,
         modbus_factory=ModbusClient, test_evidence=None, preview_factory=VisionPreview,
     ):
+        self._timeout_override = timeout
+        timeout = 15.0 if timeout is None else timeout
         if any(not math.isfinite(v) or v <= 0 for v in (window, timeout, hold)):
             raise ValueError("Durations must be finite and positive")
         self.app_config, self.vision_config = app_config, vision_config
@@ -52,6 +54,8 @@ class Runner:
             "robot_host": app_config.robot_host, "robot_port": app_config.robot_port,
             "allow_motion": allow_motion, "window_seconds": window,
             "timeout_seconds": timeout, "done_hold_seconds": hold,
+            "timeout_override_seconds": self._timeout_override,
+            "pick_place_timeout_seconds": timeout if self._timeout_override is not None else 60.0,
         })
 
     def check_abort(self):
@@ -248,7 +252,11 @@ class Runner:
                 self.report.results.append(Result(name, "SKIPPED", comments=["Sesión abortada"]))
                 continue
             started = self.clock()
+            self.timeout = (self._timeout_override if self._timeout_override is not None else
+                            60.0 if name in ("C12", "C13", "C14") else 15.0)
             self.current_observed, self.current_comments = {}, []
+            if name in ("C12", "C13", "C14"):
+                self.current_observed["timeout_seconds"] = self.timeout
             self.emit(f"\n{name} — {STEPS[name][0]}")
             status = "PASS"
             try:
@@ -266,7 +274,7 @@ class Runner:
                 status = "FAIL"
                 # Do not serialize arbitrary exception messages (paths/credentials).
                 self.current_observed["error_type"] = type(exc).__name__
-                if name in ("C7", "C8", "C9", "C12", "C13"):
+                if name in ("C7", "C8", "C9", "C12", "C13", "C14"):
                     self.aborted = True
                     self.current_comments.append(
                         "Fallo de ensayo de movimiento: sesión detenida; inspeccione el robot "

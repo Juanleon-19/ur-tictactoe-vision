@@ -84,7 +84,7 @@ class FakeModbus:
         self.close_calls += 1
 
     def read_status(self) -> int:
-        return self.statuses.pop(0)
+        return self.statuses.pop(0) if self.statuses else STATUS_READY
 
     def write_command(self, cell: int) -> None:
         self.commands.append(cell)
@@ -197,7 +197,8 @@ def test_close_releases_both_resources_and_is_idempotent() -> None:
     backend.open()
     backend.close()
     backend.close()
-    assert camera.close_calls == modbus.close_calls == 1
+    assert camera.close_calls == 1
+    assert modbus.close_calls == 2  # Availability probe, then final cleanup.
 
 
 def test_camera_open_failure_is_reported_without_blocking_modbus_attempt() -> None:
@@ -216,7 +217,7 @@ def test_modbus_failure_is_reported_while_camera_remains_available() -> None:
     backend = make_backend(camera=camera, modbus=modbus)
     assert not backend.open()
     assert backend.camera_status == "CONECTADA"
-    assert backend.robot_status == "ERROR"
+    assert backend.robot_status == "ERROR DE CONEXIÓN"
     assert "MODBUS_CONNECTION_ERROR" in (backend.last_error or "")
 
 
@@ -247,6 +248,9 @@ class StubBackend:
 
     def tick(self) -> PhysicalBoardState | None:
         return self.observation
+
+    def refresh_status(self) -> bool:
+        return self.is_open
 
     def close(self) -> None:
         self.close_calls += 1
@@ -290,7 +294,7 @@ def test_real_observation_plays_human_move() -> None:
 
 
 def test_real_robot_handshake_waits_for_correct_visual_verification() -> None:
-    modbus = FakeModbus((STATUS_READY, STATUS_BUSY, STATUS_DONE))
+    modbus = FakeModbus((STATUS_READY, STATUS_BUSY, STATUS_DONE, STATUS_READY))
     backend = StubBackend(physical(), modbus)
     app = GameApplication(False, real_backend=backend)
     app.update()
@@ -315,6 +319,30 @@ def test_real_robot_handshake_waits_for_correct_visual_verification() -> None:
     assert app.session.board.cell(expected) == app.session.robot
     assert app.session.pending_robot_move is None
     assert modbus.commands == [expected, 0]
+    assert app.runtime.state == RuntimeState.ACKNOWLEDGING_ROBOT
+    assert not app.new_game(HARD, True)
+    app.update()
+    assert app.runtime.state == RuntimeState.WAITING_HUMAN
+    assert modbus.connect_calls == modbus.close_calls == 1
+
+
+def test_real_lost_command_reply_blocks_new_game_and_preserves_pending_evidence():
+    modbus = FakeModbus((STATUS_READY,))
+    backend = StubBackend(physical(), modbus)
+    app = GameApplication(False, real_backend=backend)
+    app.update()
+    assert app.new_game(HARD, False)
+    def lost_reply(cell):
+        modbus.commands.append(cell)
+        raise ModbusConnectionError("test reply lost")
+    modbus.write_command = lost_reply
+    app.update()
+    pending = app.session.pending_robot_move
+    assert app.runtime.state == RuntimeState.ERROR
+    assert not app.new_game(HARD, True)
+    assert app.session.pending_robot_move == pending
+    assert modbus.commands == [pending]
+    assert modbus.close_calls == 1
 
 
 def test_real_modbus_error_stops_runtime() -> None:
@@ -324,7 +352,7 @@ def test_real_modbus_error_stops_runtime() -> None:
     app.new_game(HARD, False)
     app.update()
     assert app.runtime.state == RuntimeState.ERROR
-    assert app.snapshot().robot_status == "ERROR"
+    assert app.snapshot().robot_status == "REQUIERE RECUPERACIÓN"
 
 
 def test_real_backend_default_observer_uses_cell_history(monkeypatch) -> None:
@@ -396,7 +424,8 @@ def test_hot_profile_replaces_vision_only_and_reacquires(profile, monkeypatch):
     assert backend.camera is camera and backend.modbus_client is modbus
     assert backend.is_open
     assert camera.open_calls == modbus.connect_calls == 1
-    assert camera.close_calls == modbus.close_calls == 0
+    assert camera.close_calls == 0
+    assert modbus.close_calls == 1  # No socket is retained while waiting for a game.
     assert modbus.commands == []
     # Subsequent ticks use the replacement detector and normal temporal observer.
     monkeypatch.setattr(backend.detector, "detect", FakeDetector(tuple(range(10, 19))).detect)

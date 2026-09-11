@@ -2,7 +2,8 @@
 
 Arquitectura vigente para CB3 / PolyScope 3.14. El operador confirmó físicamente
 los Assignments, interpolación, Tool Z y recogida/colocación con Robotiq.
-La aceptación del controlador integrado C8–C14 debe registrarse por separado.
+Mode1 y Mode2 ya funcionaron físicamente, incluido C12 y varios ciclos C13.
+Completar C13 y registrar aceptación end-to-end C14; no se infiere PASS de software.
 
 ## Preparar Installation y programa
 
@@ -51,19 +52,20 @@ CELL7  CELL8  CELL9
 ```
 
 P2 promedia XYZ de P1/P3; P4 de P1/P7; P5 de las cuatro esquinas;
-P6 de P3/P9 y P8 de P7/P9. La fórmula bilineal conserva XYZ de las esquinas.
+P6 de P3/P9 y P8 de P7/P9. Se calculan una vez con aritmética explícita;
+XYZ de las esquinas se conserva. No hay función bilineal genérica en el controlador.
 Todas las poses seleccionadas usan P1[3], P1[4], P1[5].
 No se interpolan vectores de rotación. Selección 1..9 mediante if/elif explícitos.
 
 Con el TCP validado, +Z Tool baja y -Z Tool sube:
 
 ```text
-APPROACH_DZ = -0.040
+APPROACH_DZ = -0.060
 Pn_UP = pose_trans(Pn, p[0,0,APPROACH_DZ,0,0,0])
 P_PICK_UP = pose_trans(P_PICK, p[0,0,APPROACH_DZ,0,0,0])
 ```
 
-Son 40 mm a lo largo del eje Tool de cada pose, no de Z base.
+Son 60 mm a lo largo del eje Tool de cada pose, no de Z base.
 Conservar movej a=0.20 rad/s², v=0.10 rad/s y movel a=0.05 m/s², v=0.02 m/s.
 
 La arquitectura de Plane Feature TABLERO está abandonada. Para recalibrar el
@@ -93,11 +95,19 @@ STATUS_REGISTER=129: 0 READY, 1 BUSY, 2 DONE, 3 ERROR.
 
 READY → COMMAND n → BUSY → ejecución → DONE sostenido → COMMAND0 → READY.
 Un COMMAND no cero mientras DONE no repite movimiento.
+Al reiniciar el controlador se borra COMMAND128 con COMMAND_IDLE antes de
+publicar READY y entrar al loop. Esta limpieza inicial descarta una orden
+residual; no modifica las poses, movimientos ni el handshake de una orden nueva.
 Un comando fuera de 0..9 produce ERROR; COMMAND0 permite volver a READY.
 No se añaden registros, comandos PICK ni selección remota de modo.
 
 C6/C7 fueron confirmados físicamente por el operador. Seguir
 [commissioning](commissioning.md) y [calibración física](calibracion-fisica.md).
+
+El pick/place tarda más de 15 s. C12/C13 usan 60 s por defecto, configurable con
+--timeout. El PC abre una conexión por movimiento autorizado, sin espera humana
+dentro del socket. En runtime real/C14 se verifica ocupación antes de COMMAND0,
+se espera READY y se cierra la conexión antes del siguiente turno humano.
 
 ## Límites
 

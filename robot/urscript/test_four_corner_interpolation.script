@@ -1,66 +1,23 @@
-# EXPERIMENTAL: prueba independiente; no modifica el controlador productivo.
-# Ensenar las cuatro poses SAFE del TCP en ROBOT BASE frame, con el mismo
-# TCP y orientacion. Rellenar solo en el robot/copia local; no subir poses reales.
-# Cada lista: [x,y,z,rx,ry,rz], posicion en metros, vector de rotacion en radianes.
-# Tablero: CELL1 CELL2 CELL3 / CELL4 CELL5 CELL6 / CELL7 CELL8 CELL9.
-# Se conserva la orientacion de CELL1 incluso en las otras tres esquinas.
-# Antes de habilitar: verificar TCP/payload, posicion inicial y recorrido libre
-# hasta SAFE en PolyScope; mantener disponible la parada fisica.
-# Un destino SAFE no garantiza que toda la trayectoria articular sea despejada.
+def test_cell5():
 
-def test_four_corner_interpolation():
-  global CELL1_SAFE = []
-  global CELL3_SAFE = []
-  global CELL7_SAFE = []
-  global CELL9_SAFE = []
-  global TEST_CELL = 5
-  global ENABLE_MOTION = False
-  # Aceleracion articular rad/s^2 y velocidad articular rad/s.
-  global JOINT_A = 0.3
-  global JOINT_V = 0.15
+  local p1 = CELL1
+  local p3 = CELL3
+  local p7 = CELL7
+  local p9 = CELL9
 
-  def interpolated_cell_pose(cell):
-    # Precondicion: cuatro listas completas y celda entera 1..9, validadas abajo.
-    # Solo XYZ se interpola; nunca se interpolan los vectores de rotacion.
-    local row = floor((cell - 1) / 3)
-    local col = (cell - 1) - row * 3
-    local u = col / 2.0
-    local v = row / 2.0
-    local x = (1-u)*(1-v)*CELL1_SAFE[0] + u*(1-v)*CELL3_SAFE[0] + (1-u)*v*CELL7_SAFE[0] + u*v*CELL9_SAFE[0]
-    local y = (1-u)*(1-v)*CELL1_SAFE[1] + u*(1-v)*CELL3_SAFE[1] + (1-u)*v*CELL7_SAFE[1] + u*v*CELL9_SAFE[1]
-    local z = (1-u)*(1-v)*CELL1_SAFE[2] + u*(1-v)*CELL3_SAFE[2] + (1-u)*v*CELL7_SAFE[2] + u*v*CELL9_SAFE[2]
-    local rx = CELL1_SAFE[3]
-    local ry = CELL1_SAFE[4]
-    local rz = CELL1_SAFE[5]
-    return p[x, y, z, rx, ry, rz]
-  end
+  # Promedio XYZ de las cuatro esquinas
+  local x5 = (p1[0] + p3[0] + p7[0] + p9[0]) / 4.0
+  local y5 = (p1[1] + p3[1] + p7[1] + p9[1]) / 4.0
+  local z5 = (p1[2] + p3[2] + p7[2] + p9[2]) / 4.0
 
-  if ((TEST_CELL < 1) or (TEST_CELL > 9)):
-    textmsg("INVALID TEST_CELL: expected 1..9", TEST_CELL)
-    return False
-  end
-  if (TEST_CELL != floor(TEST_CELL)):
-    textmsg("INVALID TEST_CELL: expected integer", TEST_CELL)
-    return False
-  end
-  if ((length(CELL1_SAFE) != 6) or (length(CELL3_SAFE) != 6)):
-    textmsg("CONFIGURATION INCOMPLETE: CELL1_SAFE and CELL3_SAFE need 6 elements")
-    return False
-  end
-  if ((length(CELL7_SAFE) != 6) or (length(CELL9_SAFE) != 6)):
-    textmsg("CONFIGURATION INCOMPLETE: CELL7_SAFE and CELL9_SAFE need 6 elements")
-    return False
-  end
+  # Orientación idéntica a CELL1
+  local p5 = p[x5,y5,z5,p1[3],p1[4],p1[5]]
 
-  local calculated_pose = interpolated_cell_pose(TEST_CELL)
-  textmsg("TEST CELL", TEST_CELL)
-  textmsg("CALCULATED POSE", calculated_pose)
-  if (ENABLE_MOTION == True):
-    sleep(1.0)
-    textmsg("MOVING TO SAFE CALCULATED CELL", TEST_CELL)
-    movej(get_inverse_kin(calculated_pose), a=JOINT_A, v=JOINT_V)
-  end
-  return True
+  textmsg("CELL5 CALCULADA", p5)
+
+  # PRIMERA PRUEBA: dejar comentado
+  # movel(p5, a=0.05, v=0.02)
+
 end
 
-test_four_corner_interpolation()
+test_cell5()

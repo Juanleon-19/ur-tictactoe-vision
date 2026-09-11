@@ -43,7 +43,7 @@ def test_camera_lifecycle_preserves_robot_and_reacquires(operation):
         assert app.reset_board_observation()
         assert "Observación reiniciada" in app.camera_feedback
     assert backend.modbus_client.connect_calls == 1
-    assert backend.modbus_client.close_calls == 0
+    assert backend.modbus_client.close_calls == 1  # Initial probe is already closed.
     assert backend.modbus_client.commands == []
     assert camera.open_calls == (1 if operation == "reset" else 2)
     assert camera.close_calls == (0 if operation == "reset" else 1)
@@ -67,6 +67,7 @@ def test_controls_blocked_during_physical_game(state):
     app.update()
     assert app.new_game(HARD, True)
     app.runtime.state = state
+    modbus_calls = backend.modbus_client.connect_calls
     observer = backend.observer
     assert not app.apply_camera(1, "MSMF")
     assert not app.reconnect_camera()
@@ -74,7 +75,7 @@ def test_controls_blocked_during_physical_game(state):
     assert not app.detect_cameras("AUTO")
     assert backend.observer is observer
     assert backend.camera.close_calls == 0
-    assert backend.modbus_client.connect_calls == 1
+    assert backend.modbus_client.connect_calls == modbus_calls
     app.close()
 
 
@@ -109,7 +110,7 @@ def test_slow_camera_keeps_ui_commands_responsive_and_closes_after_completion():
         release.set()
         finish(app)
     assert camera.close_calls == 1
-    assert backend.modbus_client.close_calls == 1
+    assert backend.modbus_client.close_calls == 2  # Probe and final cleanup.
 
 
 def test_reconnect_failure_then_recovery_preserves_modbus():
@@ -239,7 +240,7 @@ def test_contextual_help_map_and_evidence():
         assert f"CELL{i}" in BOARD_MAP and f"ID{i + 9}" in BOARD_MAP
     assert "CELL1  CELL2  CELL3\nID10     ID11     ID12" in BOARD_MAP
     assert "NO SE PUEDE INICIAR" in start_explanation(snapshot)
-    assert "✕ Robot conectado" in start_explanation(snapshot)
+    assert "RECONECTAR CÁMARA" in start_explanation(snapshot)
     checklist = help_text("Puesta en marcha", snapshot, None)
     assert "PASS" not in checklist
     assert "Sin resultados" in checklist

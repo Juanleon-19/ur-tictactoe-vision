@@ -34,7 +34,7 @@ PROCEDURES = {
            "READY → COMMAND5 → BUSY → DONE sostenido → COMMAND0 → READY, con tiempos. "
            "NO debe mover robot.",
            "Handshake completo sin movimiento esperado. COMMAND0 es un acuse, no una parada."),
-    "C8": ("Confirmar Mode1, Assignments P1/P3/P7/P9 y aproximación Tool Z -40 mm. Disponer de parada física "
+    "C8": ("Confirmar Mode1, Assignments P1/P3/P7/P9 y aproximación Tool Z -60 mm. Disponer de parada física "
            "y autorizar CELL5 en el harness.",
            "Evaluar la posición final P5_UP, sin descenso, y responder YES/NO.",
            "Movimiento seguro y evaluación afirmativa; no asumir poses ni parámetros."),
@@ -44,7 +44,7 @@ PROCEDURES = {
     "C10": ("Confirmar definiciones rq_* del URCap cargadas en PolyScope.",
             "Registrar activación y open/close comprobados físicamente.",
             "Confirmación explícita del operador; el harness no conecta hardware."),
-    "C11": ("Verificar P_PICK/P_HOME y Tool Z -40 mm en PolyScope.",
+    "C11": ("Verificar P_PICK/P_HOME y Tool Z -60 mm en PolyScope.",
             "Confirmar ensayo manual PICK + close + retract con agarre real.",
             "Evidencia manual registrada; no existe comando PICK separado."),
     "C12": ("Mode2, seis Assignments, C8–C11 verificados y parada disponible; --allow-motion.",
@@ -54,15 +54,16 @@ PROCEDURES = {
             "Probar 1,3,7,9 y después 2,4,6,8, con autorización individual.",
             "Confirmar cada ficha y retorno HOME; no encadenar sin operador."),
     "C14": ("Confirmar evidencia C1–C13, tablero vacío estable y cliente Modbus exclusivo.",
-            "Registrar precondiciones; el harness no ejecuta una partida.",
-            "Aceptación runtime/visión/juego pendiente de adaptación separada."),
+            "Autorizar un turno humano+robot o partida completa. Visión confirma la ficha "
+            "antes del acuse; confirmar también el retorno físico a HOME.",
+            "Turno completo hasta READY con evidencia visual y del operador; sin reintentos automáticos."),
 }
 
 
 def procedure(step):
     number = int(step[1:])
     risk = ("SIN MOVIMIENTO" if number <= 6 else "HANDSHAKE SIN MOVIMIENTO ESPERADO"
-            if number == 7 else "MOVIMIENTO FÍSICO" if number in (8, 9, 12, 13)
+            if number == 7 else "MOVIMIENTO FÍSICO" if number in (8, 9, 12, 13, 14)
             else "EVIDENCIA MANUAL / SIN I/O" if number in (10, 11) else "PRECONDICIONES / PENDIENTE")
     preparation, observe, criterion = PROCEDURES.get(step, (
         "No habilitado en el harness actual. Robotiq requiere modelo, URCap y adaptador validados.",

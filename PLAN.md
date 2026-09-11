@@ -12,11 +12,23 @@
   simulación y real, con cierre controlado. Smoke visual NOT CONFIRMED por falta
   de control de escritorio; no bloquea el cierre de software autorizado.
 - Runner C0–C14: C6/C7 confirmados físicamente por el operador. C8/C9 usan
-  cuatro Point Features y aproximación Tool Z -40 mm; C10/C11 registran evidencia
-  manual, C12/C13 ejecutan pick-place confirmado. C14 prepara precondiciones;
-  su aceptación runtime/visión/juego requiere adaptación separada.
+  cuatro Point Features y aproximación Tool Z -60 mm; C10/C11 registran evidencia
+  manual, C12 y varios movimientos C13 funcionaron físicamente. C14 ejecuta una
+  aceptación guiada de un turno o partida mediante cámara, GameSession y runtime;
+  el operador confirmó C14 PASS físico. La recuperación/diagnóstico de la app
+  posterior a ese ensayo requiere ahora validación física antes de repetir partida.
 - Assignments, interpolación, aproximación y Robotiq/pick-place validados por
-  el operador; la integración completa mantiene aceptación física pendiente.
+  el operador; C14 end-to-end PASS reportado por el operador.
+- Modbus real: conexión fresca por turno, cierre tras READY y sin reenvíos ni
+  resets automáticos ante entrega incierta. C12/C13/C14 tienen 60 s por defecto;
+  los pasos rápidos conservan 15 s y --timeout permite override.
+- C13/C14 PASS físicos reportados. Recuperación explícita: el controlador limpia
+  COMMAND128 antes de publicar READY al arrancar; la GUI puede escribir un único
+  COMMAND0 bajo solicitud del operador, nunca durante BUSY ni como parada física.
+  Partidas inciertas se cancelan conservando historial; cámara congelada en esta
+  iteración. Pendiente validación física de estos cambios de recuperación.
+- Cámara y ayuda: selección separada de perfiles segmentados, comparación
+  observacional por ID/FPS y procedimientos técnicos en Avanzado.
 
 Este documento define el orden de implementación del proyecto. Cada fase debe cerrar con un resultado verificable antes de iniciar la siguiente.
 
@@ -132,7 +144,8 @@ Esta fase se desarrolla anticipadamente porque no depende de cámara ni robot.
 ## Fase 4 — PolyScope
 
 **Estado:** arquitectura de cuatro Point Features y Assignments validada por
-el operador en CB3 / PolyScope 3.14; controlador integrado preparado para aceptación.
+el operador en CB3 / PolyScope 3.14; Mode1, Mode2, C12 y varios ciclos C13 probados.
+Completar cobertura de celdas; C14 con visión reportado PASS por el operador.
 
 ### Objetivo
 
@@ -142,8 +155,8 @@ por Assignment Nodes anteriores; no resuelve nombres de Features.
 
 ### Entregables
 
-- interpolación bilineal XYZ y orientación fija P1 para las nueve celdas;
-- aproximación pose_trans(P, p[0,0,-0.040,0,0,0]): -Z Tool sube con el TCP probado;
+- promedios XYZ explícitos para las celdas derivadas y orientación fija P1;
+- aproximación pose_trans(P, p[0,0,-0.060,0,0,0]): -Z Tool sube con el TCP probado;
 - Mode1 solo Pn_UP; Mode2 PICK → PLACE → HOME con Robotiq;
 - movej a=0.20, v=0.10; movel a=0.05, v=0.02, valores físicamente probados;
 - recalibración editando únicamente los cuatro Point Features del tablero.
@@ -191,7 +204,8 @@ son la reserva explícita de este proyecto.
 ## Fase 6 — Integration
 
 **Estado:** `PhysicalGameRuntime` implementado y modo real desktop integrado por
-software mediante `RealGameBackend`. El end-to-end físico sigue pendiente.
+software mediante `RealGameBackend`. C14 end-to-end físico reportado PASS por el
+operador. Pendiente validar físicamente recuperación/diagnóstico de la app.
 
 ### Objetivo
 

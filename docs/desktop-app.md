@@ -1,5 +1,8 @@
 # Aplicación de escritorio MVP
 
+Para la recuperación del robot después de C14 y la comparación de tiempos
+AUTO/DSHOW/MSMF, consultar [Recuperación y diagnóstico](recovery-diagnostics.md).
+
 La interfaz es una aplicación Windows con CustomTkinter sobre Tkinter. Mantiene esta separación:
 
 ```text
@@ -20,21 +23,27 @@ Solo selecciona configuración, envía intenciones y representa snapshots.
 ## Controles de operación y ayuda offline
 
 Abrir `python main.py app --simulate` y seleccionar **AYUDA / PUESTA EN MARCHA**
-para consultar la ayuda sin hardware. Las seis secciones incluyen checklist,
-solución contextual de problemas, mapa CELL1–9 / ID10–18, red y seguridad.
+para consultar la ayuda sin hardware. **CÓMO JUGAR** presenta preparación,
+turnos, problemas de robot/cámara/tablero y cierre con SALIR, sin requerir términos
+del protocolo. **INFORMACIÓN TÉCNICA** conserva commissioning C0–C14, historial, mapa de IDs,
+red y diagnóstico técnico. La información de desarrollo no domina la vista inicial.
 El estado general se actualiza desde el runtime; la simulación no acredita PASS físico.
 Help es solo lectura: no tiene comandos de robot ni ejecuta el harness.
 
-En **CÁMARA / DIAGNÓSTICO**, los perfiles Robusto, Reflejos y Estándar se conservan.
-Los nuevos controles permiten seleccionar índice y AUTO/DSHOW/MSMF para esta sesión:
+En **CÁMARA / DIAGNÓSTICO** se separan selección de cámara, acciones, perfil,
+preview y estado. Se conserva el índice editable porque puede variar. El botón
+**CONFIGURACIÓN AVANZADA** despliega Camera N, AUTO/DSHOW/MSMF, DETECTAR y APLICAR; el backend efectivo sigue visible
+en diagnóstico. El perfil usa botones segmentados **Robusto / Reflejos / Estándar**
+y **APLICAR**, para esta sesión:
 
-- **DETECTAR CÁMARAS** prueba 0–5 en segundo plano y libera cada captura de prueba.
-  Reutiliza como evidencia el índice ya abierto con el mismo backend. Los índices
+- **DETECTAR** prueba 0–5 en segundo plano y libera cada captura de prueba.
+  Omite el índice ya abierto, incluso al seleccionar otro backend. Los índices
   no identifican marcas de cámara. No cambia la selección ni los YAML.
-- **APLICAR CÁMARA** y **RECONECTAR CÁMARA** sustituyen únicamente la cámara,
+- **APLICAR** y **RECONECTAR CÁMARA** cierran antes de sustituir la cámara,
   conservan Modbus y descartan la observación anterior para reacquirir el tablero.
-- **REINICIAR OBSERVACIÓN** conserva cámara, detector y Modbus; limpia el estado
-  temporal, IDs y preview. Esperar nuevamente la estabilización.
+- **REINICIAR SISTEMA** en HOME cancela la partida, recupera explícitamente el
+  robot y reinicia la observación temporal. La cámara conectada permanece abierta.
+  Esperar nuevamente la estabilización antes de mostrar SISTEMA LISTO.
 
 Estos controles se bloquean durante una partida física y mientras hay otra operación
 de cámara pendiente. La apertura inicial también ocurre en segundo plano: se muestra
@@ -56,7 +65,7 @@ queda a su lado; **DETALLE** conserva IDs visibles, FPS de la GUI y códigos int
 En simulación los controles físicos y aplicar perfil están deshabilitados; el
 servicio de simulación y la pantalla JUEGO conservan su comportamiento.
 
-En ayuda hay dos vistas independientes y de solo lectura:
+En ayuda > **Avanzado** hay dos vistas de evidencia independientes y de solo lectura:
 
 - **Última sesión**, en Commissioning: el último archivo válido por modificación,
   únicamente con los pasos que incluye y su archivo, timestamp y SHA.
@@ -72,9 +81,10 @@ C0 se muestra separadamente como evidencia de software. C1–C4 PASS recomienda 
 y C5 PASS avanza a C6. **VER PROCEDIMIENTO** solo navega a la ayuda del paso.
 Los resúmenes C1–C14 describen objetivo, preparación, observación, criterio y riesgo,
 según el harness existente. C10/C11 registran evidencia manual; C12/C13 realizan ciclos confirmados.
-C14 registra precondiciones y señala la aceptación runtime/visión/juego pendiente.
+C14 guía un turno humano+robot o una partida con aceptación visual y confirmación
+HOME; requiere --allow-motion y autorizaciones desde el harness, nunca desde ayuda.
 
-**Solucionar problema** ofrece siete opciones con estado runtime y acciones sugeridas.
+**Avanzado > Solucionar problema** ofrece siete opciones con estado runtime y acciones sugeridas.
 Help usa scroll vertical y no ejecuta commissioning, terminales ni comandos de robot.
 La geometría se comprueba con widgets reales a 900×620 y 1366×768; el logo y JUEGO
 permanecen intactos. Las pruebas usan dispositivos falsos, sin validación física nueva.
@@ -114,7 +124,7 @@ python main.py app
 
 `RealGameBackend` encapsula `Camera`, `ArucoDetector`, `BoardObserver` y
 `ModbusClient`. Construirlo no abre dispositivos. `open()` intenta abrir cámara y
-conectar Modbus de forma independiente, `tick()` captura como máximo un frame y
+comprobar Modbus de forma independiente, cerrando enseguida esa conexión. `tick()` captura como máximo un frame y
 actualiza la observación, y `close()` libera ambos recursos de forma idempotente.
 
 ```text
@@ -126,7 +136,24 @@ La partida solo comienza cuando existe una observación `ready`, sin celdas
 inciertas ni ocupadas. Estas condiciones se delegan en
 `PhysicalGameRuntime.start()`. Durante la partida, DONE conduce a
 `VERIFYING_ROBOT`; el movimiento lógico no se confirma ni se limpia COMMAND hasta
-que la visión observa la celda esperada.
+que la visión observa la celda esperada. Después, `ACKNOWLEDGING_ROBOT` espera
+READY y cierra la conexión. Se abre una conexión fresca por turno, ninguna queda
+ociosa durante la espera humana. Movimiento, verificación y acuse disponen de
+60 s por etapa; los ciclos físicos han excedido 15 s.
+
+Un fallo de transporte se muestra como error de dominio y cierra la conexión,
+sin reenviar COMMAND ni enviar COMMAND0. Ante una entrega incierta la GUI impide
+iniciar otra partida con el comando sin resolver. Inspeccionar robot y Log antes
+de recuperación manual. Cerrar aplicación no detiene movimiento físico.
+
+**COMPARAR PERFILES** muestra las últimas muestras de Robusto y Reflejos (y
+Estándar), con frames, duración, FPS y porcentaje de visibilidad de cada ID10..18.
+Son conteos de las detecciones ya realizadas, sin captura adicional ni cambios
+de BoardObserver. Compare al menos 10 s por perfil con tablero vacío y las mismas
+condiciones; seleccionar un perfil inicia una muestra nueva para ese perfil.
+Cambiar/reconectar cámara o un error de captura descarta la comparación.
+Robusto sigue predeterminado. Reflejos es experimental y no se declara mejor
+hasta tener evidencia física. Los FPS están limitados por el refresco de la GUI.
 
 El observador usa exclusivamente IDs 10..18 y cuenta las capturas dentro de su
 ventana temporal. No requiere marcadores de referencia geométrica. `AppConfig`
@@ -139,9 +166,11 @@ robot y tablero, y los fallos de apertura quedan en `last_error` sin cerrar la G
 Los tests inyectan cámaras, detectores, observers y clientes Modbus pequeños, sin
 usar sockets ni hardware real.
 
-En modo real Pícaro permanece deshabilitado. Una sustitución no cambia el estado
-`FREE/OCCUPIED`, por lo que hará falta identificar el propietario físico mediante
-X verde y O amarilla, e integrar posteriormente HSV y las acciones UR.
+En modo real Pícaro permanece deshabilitado; está disponible en simulación.
+Como mejora opcional, P_DISCARD, retirada de ficha humana, colocación de ficha
+robot y un nuevo contrato de acción requerirían validación física independiente.
+No se implementan esas acciones ni se cambian velocidades productivas:
+JOINT_A=0.20, JOINT_V=0.10, LINEAR_A=0.05, LINEAR_V=0.02.
 
 La C920 fue detectada y validada a 1280×720 @ 30 FPS. El perfil `robust`
 mejoró la detección y es el predeterminado del backend real y de `AppConfig`.
@@ -159,8 +188,8 @@ El logo oficial es opcional y debe colocarse en:
 assets/javeriana_logo.png
 ```
 
-Si no existe, la aplicación continúa normalmente y conserva el nombre de la
-universidad en el pie. `desktop/assets.py` resuelve esta ruta tanto desde el árbol
+Si no existe, la aplicación continúa normalmente. No se duplican el nombre de la
+universidad ni textos académicos en encabezado o pie. `desktop/assets.py` resuelve esta ruta tanto desde el árbol
 de desarrollo como desde el directorio temporal `_MEIPASS` de una futura
 aplicación PyInstaller. No se incluye ni se genera una imitación del escudo.
 
@@ -185,13 +214,47 @@ Los temporales locales `.gui-test-temp/` y `.gui-test-cache/` están ignorados.
 ## Branding académico
 
 El encabezado conserva ROBOT TRIQUI y Sistema autónomo de juego, con el logo
-oficial existente a 220×110 px, conservando la proporción 2:1 y el asset original
+oficial existente a 260×130 px, conservando la proporción 2:1 y el asset original
 de 632×316 px para pantallas con escalado. El header compartido permanece visible
 en inicio, partida y Cámara / Diagnóstico, sin duplicar el logo.
-Añade Proyecto académico / Pontificia Universidad Javeriana, sin afirmar respaldo
-institucional. El pie global muestra exactamente `By: Juan Esteban León Saiz`.
+El logo es la única identificación institucional. Se conserva el badge
+SISTEMA REAL / SIMULACIÓN y el pie `By: Juan Esteban León Saiz`.
+HOME presenta Experto, Intermedio, Pícaro, Robot y Humano; solo Cámara, Robot y
+Tablero en estado del sistema y un único REINICIAR SISTEMA.
+
+SALIR está visible en todas las pestañas. SALIR y la X comparten `shutdown_all()`:
+cancelación local, bloqueo de acciones, espera de workers, release de cámara y
+cierre independiente de Modbus/Dashboard antes de destruir Tk. No envían comandos
+al robot. Si OpenCV sigue abriendo, se mantiene la ventana de cierre hasta liberar
+el dispositivo; no queda un worker de esa sesión tras destruir la ventana.
 
 ## Distribución Windows onedir
+
+La entrega instalable se genera desde la raíz con `scripts/build_release.ps1`,
+usando `.venv/Scripts/python.exe`. Ejecuta pytest, pip check y diff --check antes
+de limpiar únicamente build/, dist/ e installer/output/. Usa el spec versionado
+`robot_triqui.spec`, conserva el logo y genera su ICO en build/assets/.
+
+Los YAML locales se copian solo a dist/RobotTriqui/config/ como app.yaml y
+vision.yaml. Se normaliza vision_config a vision.yaml únicamente en la copia.
+Si falta un local se usa su example y el build avisa que requiere configuración.
+La procedencia se registra sin IPs en build/stage-result.json.
+
+Inno Setup debe estar instalado previamente; no se descarga automáticamente.
+Se busca ISCC.exe en PATH y carpetas habituales, o se acepta `-IsccPath`.
+Si falta, queda el onedir construido y el script termina con código distinto de
+cero, sin afirmar que exista instalador. El fuente es installer/RobotTriqui.iss;
+el resultado final es dist/release/RobotTriqui_Setup.exe, con tamaño y SHA256.
+La versión inicial de distribución es 1.0.0; actualizar de forma coordinada el
+recurso packaging/version_info.txt y la versión del .iss para futuras entregas.
+
+El instalador es por usuario, no inicia la app y conserva configuración existente
+al actualizar. No incluye reports ni archivos de desarrollo. El smoke es siempre
+`RobotTriqui.exe --simulate`, aunque la distribución contenga configuración física.
+Guía para el operador: [Instalación](installation.md).
+
+Referencias del empaquetado: [spec de PyInstaller](https://pyinstaller.org/en/stable/spec-files.html)
+y [modo sin administrador de Inno Setup](https://jrsoftware.org/ishelp/topic_setup_privilegesrequired.htm).
 
 Desde PowerShell, con Python 3.12 y Tcl/Tk funcional:
 

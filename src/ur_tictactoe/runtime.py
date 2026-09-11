@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import math
+from time import monotonic
 
 from ur_tictactoe.communication import (
     STATUS_BUSY,
@@ -22,6 +24,7 @@ class RuntimeState(str, Enum):
     WAITING_ROBOT = "WAITING_ROBOT"
     ROBOT_BUSY = "ROBOT_BUSY"
     VERIFYING_ROBOT = "VERIFYING_ROBOT"
+    ACKNOWLEDGING_ROBOT = "ACKNOWLEDGING_ROBOT"
     GAME_OVER = "GAME_OVER"
     ERROR = "ERROR"
 
@@ -39,7 +42,15 @@ class RuntimeSnapshot:
 class PhysicalGameRuntime:
     """Coordinate stable board states, a game session, and Modbus polling."""
 
-    def __init__(self, session: GameSession, modbus_client: object) -> None:
+    def __init__(self, session: GameSession, modbus_client: object, *,
+                 manage_connection=False, timeout=60.0, clock=monotonic) -> None:
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("Timeout must be finite and positive")
+        self.manage_connection = manage_connection
+        self.timeout, self.clock = timeout, clock
+        self._connected = False
+        self._deadline = None
+        self._saw_busy = False
         self.session = session
         self.modbus_client = modbus_client
         self.state = self._turn_state()
@@ -65,11 +76,12 @@ class PhysicalGameRuntime:
 
     def update_board(self, physical_state: PhysicalBoardState) -> int | None:
         """Process one stable observation when the current state permits it."""
-        if not self._started or self.state in (
+        if not self._started or not self._check_deadline() or self.state in (
             RuntimeState.ERROR,
             RuntimeState.GAME_OVER,
             RuntimeState.ROBOT_BUSY,
             RuntimeState.WAITING_ROBOT,
+            RuntimeState.ACKNOWLEDGING_ROBOT,
         ):
             return None
 
@@ -106,27 +118,57 @@ class PhysicalGameRuntime:
 
     def poll_robot(self) -> int | None:
         """Advance the Modbus handshake by one status read without blocking."""
-        if not self._started or self.state in (
+        if not self._started or not self._check_deadline() or self.state in (
             RuntimeState.ERROR,
             RuntimeState.GAME_OVER,
             RuntimeState.VERIFYING_ROBOT,
         ):
             return None
+        if self.state == RuntimeState.ACKNOWLEDGING_ROBOT:
+            try:
+                status = self.modbus_client.read_status()
+                if status == STATUS_READY:
+                    self._close_connection()
+                    self._deadline = None
+                    self.state = self._turn_state()
+                elif status != STATUS_DONE:
+                    self._handle_robot_error("UNEXPECTED_ACK_STATUS")
+                return status
+            except (ModbusConnectionError, ModbusResponseError) as exc:
+                self._handle_robot_error(type(exc).__name__, exc)
+                return None
         if self.session.turn != ROBOT:
             return None
 
         try:
+            if self.manage_connection and not self._connected:
+                self._connected = True  # Cleanup even if connect raises.
+                self.modbus_client.connect()
+                self._deadline = self.clock() + self.timeout
+                self._saw_busy = False
             if self.session.pending_robot_move is None:
                 self.session.request_robot_move()
             self.state = RuntimeState.WAITING_ROBOT
             status = self.modbus_client.read_status()
             if status == STATUS_READY:
+                if self.manage_connection and self._saw_busy:
+                    self._handle_robot_error("UNEXPECTED_READY_AFTER_BUSY")
+                    return status
                 if not self.command_sent:
+                    self.command_sent = True  # Delivery may succeed even if the reply is lost.
                     self.modbus_client.write_command(self.session.pending_robot_move)
-                    self.command_sent = True
             elif status == STATUS_BUSY:
+                if self.manage_connection and not self.command_sent:
+                    self._handle_robot_error("UNEXPECTED_BUSY_BEFORE_COMMAND")
+                    return status
+                self._saw_busy = True
                 self.state = RuntimeState.ROBOT_BUSY
             elif status == STATUS_DONE:
+                if self.manage_connection and (not self.command_sent or not self._saw_busy):
+                    self._handle_robot_error("UNEXPECTED_DONE_BEFORE_BUSY")
+                    return status
+                if self.manage_connection:
+                    self._deadline = self.clock() + self.timeout
                 self.state = RuntimeState.VERIFYING_ROBOT
                 self.last_error = "ROBOT_MOVE_AWAITING_PHYSICAL_VERIFICATION"
             elif status == STATUS_ERROR:
@@ -206,21 +248,40 @@ class PhysicalGameRuntime:
         self.command_sent = False
         self.last_error = None
         self.state = (
+            RuntimeState.ACKNOWLEDGING_ROBOT if self.manage_connection else
             RuntimeState.GAME_OVER if not self.session.is_active else RuntimeState.WAITING_HUMAN
         )
+        if self.manage_connection:
+            self._deadline = self.clock() + self.timeout
 
     def _handle_robot_error(self, reason: str, cause: Exception | None = None) -> None:
-        if self.session.pending_robot_move is not None:
+        # Never acknowledge/reset an uncertain command or discard its evidence.
+        if not self.manage_connection and self.session.pending_robot_move is not None:
             self.session.cancel_robot_move()
-            try:
-                self.modbus_client.clear_command()
-            except (ModbusConnectionError, ModbusResponseError) as clear_exc:
-                cause = cause or clear_exc
-                reason = f"{reason}; CLEAR_COMMAND_FAILED"
-        self.command_sent = False
         self.state = RuntimeState.ERROR
         self.last_error = reason
         self.error_cause = cause
+        self._deadline = None
+        try:
+            self._close_connection()
+        except (ModbusConnectionError, ModbusResponseError) as exc:
+            self.error_cause = cause or exc
+            self.last_error += "; CLOSE_FAILED"
+
+    def stop(self, reason="OPERATOR_ABORT", cause=None):
+        """Stop software progression; no robot commands and no physical stop."""
+        self._handle_robot_error(reason, cause)
+
+    def _close_connection(self):
+        if self.manage_connection and self._connected:
+            self._connected = False
+            self.modbus_client.close()
+
+    def _check_deadline(self):
+        if self._deadline is not None and self.clock() >= self._deadline:
+            self._handle_robot_error("ROBOT_TIMEOUT", TimeoutError("Robot stage timed out"))
+            return False
+        return True
 
     def _reject_start(self, reason: str) -> bool:
         self.state = RuntimeState.ERROR

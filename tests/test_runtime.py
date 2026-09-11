@@ -151,14 +151,14 @@ def test_invalid_robot_verification_does_not_confirm(unexpected: tuple[int, ...]
     assert modbus.clear_count == 0
 
 
-def test_error_status_cancels_pending_move_and_clears() -> None:
+def test_error_status_cancels_simulated_move_without_reset_command() -> None:
     game, modbus = runtime(False, (STATUS_READY, STATUS_ERROR))
     game.start(physical())
     game.poll_robot()
     game.poll_robot()
     assert game.state == RuntimeState.ERROR
     assert game.session.pending_robot_move is None
-    assert modbus.clear_count == 1
+    assert modbus.clear_count == 0
 
 
 def test_modbus_exception_enters_error_with_cause() -> None:

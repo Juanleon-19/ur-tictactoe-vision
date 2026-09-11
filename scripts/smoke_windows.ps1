@@ -4,10 +4,8 @@ $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 if (-not $Product) { $Product = Join-Path $projectRoot "dist\RobotTriqui\RobotTriqui.exe" }
 $Product = (Resolve-Path -LiteralPath $Product).Path
 $bundle = Split-Path -Parent $Product
-# A custom robot connection would make this smoke unsuitable for unattended use.
-if (Test-Path -LiteralPath (Join-Path $bundle "config\app.yaml")) {
-    throw "Remove external app configuration from the smoke distribution before running"
-}
+# Always simulation, including laboratory bundles with real external settings.
+# Never launch the default real mode from an automated packaging smoke.
 $logo = Join-Path $bundle "_internal\assets\javeriana_logo.png"
 if (-not (Test-Path -LiteralPath $logo)) { throw "Bundled logo is missing" }
 $sourceHash = (Get-FileHash -LiteralPath (Join-Path $projectRoot "assets\javeriana_logo.png")).Hash
@@ -18,7 +16,7 @@ New-Item -ItemType Directory -Path $sessionDir | Out-Null
 $workingDir = Join-Path $sessionDir "empty-cwd"
 New-Item -ItemType Directory -Path $workingDir | Out-Null
 $results = @()
-foreach ($mode in @("SIMULATION", "REAL")) {
+foreach ($mode in @("SIMULATION")) {
     $stdout = Join-Path $sessionDir "$mode.stdout.log"
     $stderr = Join-Path $sessionDir "$mode.stderr.log"
     $launch = @{
@@ -26,7 +24,7 @@ foreach ($mode in @("SIMULATION", "REAL")) {
         RedirectStandardOutput = $stdout; RedirectStandardError = $stderr
         WindowStyle = "Normal"
     }
-    if ($mode -eq "SIMULATION") { $launch.ArgumentList = @("--simulate") }
+    $launch.ArgumentList = @("--simulate")
     $process = Start-Process @launch
     # Retain the process handle before exit so Windows PowerShell can read ExitCode.
     $processHandle = $process.Handle

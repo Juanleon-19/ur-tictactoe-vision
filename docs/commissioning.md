@@ -41,15 +41,15 @@ su procedencia la declara el operador, no constituye una certificación del SHA.
 | C5 OCCLUSION | Referencia vacía; pasar mano tras YES durante captura; ventana adicional de recuperación sin reiniciar observer. Requiere pérdida observada y todas FREE al final. |
 | C6 CONNECTIVITY | TCP y lectura de STATUS129 exclusivamente. Nunca escribe COMMAND. |
 | C7 MODE0 | Operador confirma script y MOTION_MODE=0; READY → COMMAND5 → BUSY → DONE sostenido → COMMAND0 → READY, con tiempos. |
-| C8 CELL5 SAFE | Mode1 y Assignments confirmados; COMMAND5 termina en P5_UP, Tool Z -40 mm, sin descenso. |
+| C8 CELL5 SAFE | Mode1 y Assignments confirmados; COMMAND5 termina en P5_UP, Tool Z -60 mm, sin descenso. |
 | C9 GRID SAFE | COMMAND1..9 termina en Pn_UP. Confirmación antes de **cada** movimiento y evaluación posterior. |
 | C10 ROBOTIQ | Confirmación de definiciones URCap cargadas y activación/open/close comprobados. Evidencia manual, sin I/O de robot. |
 | C11 PICK | Confirmar ensayo manual PICK + close + retract a P_PICK_UP con agarre real. Sin comando PICK nuevo. |
 | C12 PLACE CELL5 | Mode2: autorizar COMMAND5, handshake completo, confirmar ficha en CELL5 y retorno HOME. |
 | C13 PLACE OTHER CELLS | Mode2: 1,3,7,9,2,4,6,8; autorización y evaluación individual por celda. |
-| C14 END-TO-END | Registrar precondiciones C1–C13, visión y cliente exclusivo. BLOCKED específico: adaptar aceptación runtime/visión/juego; no ejecuta ni acredita partida. |
+| C14 END-TO-END | Un turno humano+robot o partida completa, con cámara y runtime productivos; autorización por movimiento, verificación visual antes del acuse y confirmación física de HOME. |
 
-Para C7–C9 y C12–C13 hacen falta `--allow-motion` **y** confirmación interactiva YES.
+Para C7–C9 y C12–C14 hacen falta `--allow-motion` **y** confirmación interactiva YES.
 C8–C9 confirman Mode1 y Assignments de cuatro esquinas; C12–C13 confirman Mode2,
 los seis Assignments y evidencia C8–C11. Nunca se cambian modo ni poses desde PC.
 C10/C11 solo registran evidencia manual explícita, sin conectar hardware.
@@ -65,13 +65,21 @@ python -m ur_tictactoe.commissioning --config config/app.local.yaml --steps C9 -
 
 `no` bloquea el siguiente comando del paso. `ABORT` en una pregunta o Ctrl+C
 durante captura/espera detiene la sesión: pasos posteriores SKIPPED y cierre de
-recursos. Un FAIL en C7–C9 o C12–C13 también detiene la sesión. No se reintenta ni se limpia
+recursos. Un FAIL en C7–C9 o C12–C14 también detiene la sesión. No se reintenta ni se limpia
 COMMAND automáticamente tras fallo/aborto; el operador debe inspeccionar el
 estado físico y recuperar el controlador manualmente. COMMAND0 es un acuse,
 no una parada de emergencia. **Ctrl+C/ABORT no detiene un robot que ya se mueve**;
 usar la parada física. Una operación I/O en curso puede tardar hasta su timeout
 en devolver el control. `--timeout` limita cada transición; `--done-hold` controla
-la observación de DONE sostenido (predeterminado 1 s).
+la observación de DONE sostenido (predeterminado 1 s en C7–C9/C12–C13).
+Sin override, C12/C13/C14 disponen de **60 s**; los pasos rápidos conservan **15 s**.
+Un `--timeout` explícito tiene prioridad en todos los pasos. El ciclo físico excede
+15 s: C13 produjo un falso timeout y funcionó con 60 s. No acelerar movimientos
+para satisfacer el timeout. C14 mantiene DONE hasta la confirmación visual.
+
+C8/C9/C12/C13 conectan después de cada autorización, realizan el handshake y
+cierran en finally antes de preguntar el resultado físico. No se mantienen
+sockets durante preguntas humanas. Una sesión ociosa puede perderse en CB3.
 
 El programa devuelve 0 solo si todos los pasos seleccionados son PASS; 1 si hay
 FAIL/BLOCKED/SKIPPED. Genera siempre un reporte de ejecución, incluso ante error
@@ -82,8 +90,9 @@ el SHA identifica la base, no certifica que el árbol esté limpio.
 No incluye rutas de configuración ni IP del PC; el host del robot es un dato
 local de sesión. No introducir secretos en el campo host. Reports está ignorado.
 
-El operador confirmó físicamente C6/C7, Assignments, Tool Z -40 mm y Robotiq/pick-place.
-El controlador integrado C8–C14 requiere su propia evidencia. No se ejecutó hardware durante esta entrega.
+El operador confirmó C6 (cinco PASS consecutivos), C7, Assignments, Tool Z -60 mm,
+Mode1 y Robotiq/Mode2. C12 y varios movimientos C13 funcionaron físicamente.
+Completar la cobertura C13 y la aceptación C14. Esta iteración no ejecuta hardware.
 Los tests de pytest usan cámara, reloj, detección y transporte falsos; el
 observador y la puerta de aceptación de runtime son los productivos.
 
@@ -196,19 +205,19 @@ sesión y anotaciones locales adicionales cuando el objetivo práctico no se cum
 | C5 | Mano produce pérdida temporal; al retirarse no queda ocupación falsa persistente. |
 | C6 | Modbus conecta y STATUS129 es válido. Solo lectura. |
 | C7 | MOTION_MODE=0 confirmado; READY → BUSY → DONE held → READY. Confirmar que el robot NO se mueve. |
-| C8 | MOTION_MODE=1 y P5_UP; verificar centro, orientación, elevación Tool Z -40 mm y trayecto antes de confirmar. |
+| C8 | MOTION_MODE=1 y P5_UP; verificar centro, orientación, elevación Tool Z -60 mm y trayecto antes de confirmar. |
 | C9 | Celdas 1..9 una por una; confirmar antes y después de cada movimiento. |
 | C10 | URCap cargado y activación/open/close comprobados; confirmación manual, sin I/O. |
 | C11 | Confirmación manual de PICK + close + retract con agarre real. |
 | C12 | COMMAND5 Mode2: ficha colocada en CELL5 y retorno a HOME. |
 | C13 | Primero 1,3,7,9; después 2,4,6,8. Autorizar cada ciclo y confirmar resultado. |
-| C14 | Precondiciones registradas; adaptación de aceptación runtime/visión/juego pendiente, sin partida ejecutada. |
+| C14 | Turno humano+robot completo o partida: ocupación correcta por visión, retorno HOME confirmado y READY tras el acuse. El alcance queda registrado. |
 
 ## Configuración física vigente
 
 Seguir [los seis Assignments previos al Script Node](polyscope-urscript.md).
 Cuatro Point Features de colocación → P1/P3/P7/P9 → interpolación XYZ con
-orientación P1 → Pn → Pn_UP por Tool Z -40 mm. P_PICK/P_HOME provienen de sus
+orientación P1 → Pn → Pn_UP por Tool Z -60 mm. P_PICK/P_HOME provienen de sus
 Features respectivos. Para recalibrar el tablero editar solo las cuatro esquinas
 y reiniciar desde los Assignments. No se usa Plane ni alturas relativas al tablero.
 
@@ -218,11 +227,43 @@ C10–C14 se seleccionan directamente desde el CLI; el launcher conserva sus gru
 python -m ur_tictactoe.commissioning --config config/app.local.yaml --steps C10 C11
 python -m ur_tictactoe.commissioning --config config/app.local.yaml --steps C12 --allow-motion
 python -m ur_tictactoe.commissioning --config config/app.local.yaml --steps C13 --allow-motion
-python -m ur_tictactoe.commissioning --config config/app.local.yaml --steps C14
+python -m ur_tictactoe.commissioning --config config/app.local.yaml --steps C14 --allow-motion --timeout 60
 ```
 
-Ajustar --timeout al ciclo físico medido si los tiempos de traslado conservadores
-superan la espera configurada; no acelerar movimientos para satisfacer el timeout.
-C14 no conecta hardware: confirma evidencia vigente C1–C13, tablero vacío estable,
-suministro, parada y cliente exclusivo. Su BLOCKED identifica la adaptación
-runtime/visión/juego pendiente; no significa ausencia de integración Robotiq.
+## C14: aceptación end-to-end guiada
+
+Cerrar la GUI real y cualquier otro cliente Modbus. Verificar C1–C13, Mode2,
+seis Assignments, URCap, suministro de fichas y parada física. El harness nunca
+modifica el modo ni las poses. `--allow-motion` por sí solo no autoriza el movimiento.
+
+1. Confirmar precondiciones. En la pregunta de alcance, responder **no** para
+   validar primero un turno; **YES** selecciona una partida completa.
+2. Retirar fichas y manos. La cámara debe observar tablero vacío estable durante
+   la ventana. Se usan Camera, ArucoDetector y BoardObserver productivos.
+3. Autorizar la observación humana, colocar una ficha y retirar la mano. El
+   runtime acepta una única ocupación nueva estable; GameSession decide la respuesta.
+4. Autorizar UN turno robot con ficha en PICK y zona despejada. Tras la pregunta
+   se descartan tres frames y se vuelve a comprobar el tablero antes de conectar.
+5. Conexión fresca → READY → COMMAND de la celda → BUSY → DONE. Mode2 termina
+   en HOME. No hay reenvío automático si se pierde una respuesta.
+6. La cámara debe confirmar exactamente las ocupaciones lógicas más la celda
+   elegida. Solo entonces COMMAND0 → READY → cierre de socket → WAITING_HUMAN
+   (o GAME_OVER). Si la visión no confirma dentro del timeout, FAIL sin acuse.
+7. Con la conexión cerrada, confirmar que la ficha está en la celda indicada y
+   el robot está físicamente en HOME. Los registros no pueden acreditar por sí
+   solos agarre, colocación o posición. Responder no produce FAIL.
+
+En alcance `one_turn`, PASS acredita únicamente ese turno. Después de confirmarlo,
+el operador puede terminar o **continuar la misma partida**: el alcance cambia a
+`full_game` y se repiten las autorizaciones individuales hasta resultado de
+GameSession, conservando tablero, observer y cámara. No hay reset de juego
+ni de robot automático. La observación humana tiene al menos 60 s; las preguntas
+no consumen timeout de conexión. La cámara permanece abierta y conserva observer;
+no hay captura en background.
+
+El reporte incluye `scope`, `completed_robot_turns`, `turns` (celdas humana/robot,
+observación previa, ocupación verificada y confirmación HOME), `modbus_events`
+(intentos de COMMAND, STATUS y aperturas/cierres con tiempos), resultado y estado
+final. Una escritura registrada como intentada no prueba entrega. Un PASS de los
+unit tests con dobles no sustituye este ensayo físico. Ante fallo inspeccionar
+Log y estado físico antes de recuperar manualmente; COMMAND0 no es parada.

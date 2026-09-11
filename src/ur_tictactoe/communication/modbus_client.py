@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from contextlib import contextmanager
 
 from pymodbus.client import ModbusTcpClient
 
@@ -39,6 +40,7 @@ class ModbusClient:
             host,
             port=port,
             timeout=timeout,
+            retries=0,  # Never retransmit a motion command after an uncertain reply.
         )
 
     def connect(self) -> None:
@@ -50,10 +52,12 @@ class ModbusClient:
             raise ModbusConnectionError("Could not connect to Modbus TCP server")
 
     def close(self) -> None:
-        self._transport.close()
+        with self._operation("close"):
+            self._transport.close()
 
     def read_status(self) -> int:
-        response = self._transport.read_holding_registers(STATUS_REGISTER, count=1)
+        with self._operation("read STATUS"):
+            response = self._transport.read_holding_registers(STATUS_REGISTER, count=1)
         self._require_valid_response(response, "read STATUS")
         registers = getattr(response, "registers", None)
         if not registers or len(registers) != 1:
@@ -62,11 +66,19 @@ class ModbusClient:
 
     def write_command(self, cell: int) -> None:
         command = validate_command(cell)
-        response = self._transport.write_register(COMMAND_REGISTER, command)
+        with self._operation("write COMMAND"):
+            response = self._transport.write_register(COMMAND_REGISTER, command)
         self._require_valid_response(response, "write COMMAND")
 
     def clear_command(self) -> None:
         self.write_command(COMMAND_IDLE)
+
+    @contextmanager
+    def _operation(self, name):
+        try:
+            yield
+        except Exception as exc:
+            raise ModbusConnectionError(f"Modbus transport failed: {name}; no retry") from exc
 
     @staticmethod
     def _require_valid_response(response: Any, operation: str) -> None:

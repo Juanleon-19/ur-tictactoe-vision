@@ -26,7 +26,8 @@ def main(argv=None):
     parser.add_argument("--config", type=Path)
     parser.add_argument("--aruco-profile", choices=ARUCO_PROFILES, help="Session-only profile override")
     parser.add_argument("--window", type=positive, default=10.0)
-    parser.add_argument("--timeout", type=positive, default=15.0)
+    parser.add_argument("--timeout", type=positive, default=None,
+                        help="Seconds per transition: 15 normally, 60 for C12/C13/C14; explicit value overrides both")
     parser.add_argument("--done-hold", type=positive, default=1.0)
     parser.add_argument("--allow-motion", action="store_true")
     parser.add_argument("--pytest-report", type=Path, help="JUnit XML de esta versión; nunca ejecuta pytest/hardware")

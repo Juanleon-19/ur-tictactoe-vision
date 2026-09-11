@@ -1,8 +1,7 @@
 # Runtime físico MVP
 
-`feature/mvp-runtime` depende temporalmente de
-`origin/feature/robust-board-observer`. La dependencia se podrá retirar cuando
-`BoardObserver` sea validado físicamente e integrado en la rama principal.
+Integrado en `feature/gameplay-polish`, usado por la GUI real y C14.
+BoardObserver y Minimax conservan su lógica y umbrales existentes.
 
 El runtime es una capa de aplicación independiente de GUI, cámara y robot. Recibe
 una `GameSession`, un `ModbusClient` ya construido y estados estables
@@ -31,9 +30,18 @@ GameSession -> Modbus -> UR -> DONE -> BoardObserver -> verificación
 observar exactamente las ocupaciones anteriores más la celda esperada. Hasta
 entonces el comando permanece distinto de cero y no hay reenvío ni reintento.
 
-La aplicación futura mantendrá la cámara abierta por encima del runtime y le
-entregará observaciones estables. La GUI será otra capa superior que consultará
+La aplicación mantiene la cámara abierta por encima del runtime y le
+entrega observaciones estables. La GUI es otra capa superior que consulta
 `RuntimeSnapshot`; no existe callback ni bus de eventos.
+
+En hardware, `manage_connection=True` abre TCP al iniciar el turno robot y lee
+READY inmediatamente. Exige BUSY antes de DONE; después de verificación visual,
+COMMAND0 conduce a `ACKNOWLEDGING_ROBOT` hasta leer READY. Solo entonces cierra
+y pasa a WAITING_HUMAN/GAME_OVER. No quedan sockets durante la espera humana.
+La simulación conserva su ciclo anterior. Cada etapa real dispone de 60 s.
+`stop()` y los errores cierran sin acuse ni reintento. Una escritura cuya respuesta
+se perdió permanece registrada como posiblemente enviada; no se permite iniciar
+otra partida desde la GUI con un comando sin resolver. No es parada física.
 
 ## Límite de Pícaro
 
@@ -46,6 +54,6 @@ disponer de clasificación verde/amarillo y validación física.
 
 ## Comprobación Modbus
 
-`python main.py modbus-check --host 192.168.1.10` conecta, lee una vez `STATUS` y
+`python main.py modbus-check --host <HOST_LOCAL>` conecta, lee una vez `STATUS` y
 cierra sin escribir. Una escritura de desarrollo requiere simultáneamente
 `--command 5 --allow-write` y anuncia que modifica `COMMAND_REGISTER=128`.

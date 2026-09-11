@@ -33,18 +33,18 @@ una ficha falsa.
 
 ## B. Modbus sin movimiento
 
-Prueba posterior. Red prevista: UR `192.168.1.10`; PC en la misma subred con IP
-diferente. El servidor es UR Modbus TCP, puerto `502`. Contrato actual: registro
+C6 y C7 aprobados físicamente; C6 pasó cinco veces consecutivas. PC y UR en la
+misma subred, configurada solo localmente. UR Modbus TCP, puerto `502`: registro
 `128 COMMAND` y registro `129 STATUS`.
 
-Sin habilitar movimiento: el PC escribe `COMMAND=5` y el UR lee `5`; el UR
-escribe `STATUS=2` y el PC lee `2`.
+C6 solo lee STATUS. C7 exige verificar MOTION_MODE=0 y autorizar su handshake
+COMMAND5 → BUSY → DONE sostenido → COMMAND0 → READY, sin movimiento.
 
 ## C. Cuatro Point Features / interpolación
 
 Arquitectura validada por el operador: cuatro Point Features de colocación
 CELL1/CELL3/CELL7/CELL9 y Assignments P1/P3/P7/P9 antes del Script Node.
-Interpolar XYZ, conservar orientación P1 y elevar Pn mediante Tool Z -40 mm.
+Interpolar XYZ, conservar orientación P1 y elevar Pn mediante Tool Z -60 mm.
 La selección de Features, aproximación y pick-place con Robotiq ya se probaron.
 
 Aceptar el controlador integrado: C8 primero P5_UP, luego C9 P1_UP..P9_UP.
@@ -55,5 +55,9 @@ y reejecutar los Assignments; Python no calcula ni transmite coordenadas.
 
 Seguir [Calibración física](calibracion-fisica.md): C10/C11 confirman Robotiq y
 PICK manual; C12/C13 prueban colocación con Mode2 y confirmación individual.
-C14 prepara la aceptación de una partida runtime/visión/juego, aún pendiente.
+C12 y varios ciclos C13 funcionaron; completar la cobertura restante. El pick/place
+excede 15 s: se usa 60 s por defecto, sin cambiar velocidades. No dejar un socket
+abierto durante espera humana ni repetir un comando de entrega incierta.
+C14 ejecuta aceptación guiada de un turno primero o partida completa con visión;
+la aceptación física de este nuevo flujo aún está pendiente.
 C6/C7 fueron confirmados físicamente; su contrato 128/129 se conserva.

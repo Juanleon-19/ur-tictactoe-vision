@@ -220,16 +220,8 @@ def pick_place(r, cells):
 
 
 def end_to_end(r):
-    r.current_observed.update(runtime_test_executed=False, prerequisites_verified=False)
-    r.require_confirmation("Confirme evidencia vigente C1-C13, tablero vacío y estable, suministro de fichas y parada física disponible")
-    r.require_confirmation("Confirme MOTION_MODE=2, seis Assignments vigentes y cliente de commissioning exclusivo; cerrar otros clientes Modbus")
-    r.current_observed.update(prerequisites_verified=True,
-                              pending="runtime_vision_game_acceptance")
-    raise Blocked(
-        "C14: precondiciones registradas; pendiente adaptar el procedimiento de partida con "
-        "runtime/visión/juego y verificar jugadas humanas, colocaciones y fin de partida. "
-        "No se ejecutó una partida ni se enviaron comandos"
-    )
+    from .end_to_end import accept_game
+    accept_game(r)
 
 
 STEPS = {

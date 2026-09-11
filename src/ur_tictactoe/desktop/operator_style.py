@@ -20,9 +20,9 @@ def status_color(value):
         return theme.WARNING
     if "ERROR" in value:
         return theme.ERROR
-    if any(word in value for word in ("SIMULAD", "NO DISPONIBLE", "NO CONECT", "NO CONFIGUR", "—")):
+    if any(word in value for word in ("SIMULAD", "NO DISPONIBLE", "NO CONECT", "NO CONFIGUR", "DESCONOCIDO", "—")):
         return theme.DISABLED
-    if any(word in value for word in ("NO LISTO", "INCIERTO", "ESPERANDO", "REFLEJO", "INICIALIZANDO")):
+    if any(word in value for word in ("NO LISTO", "INCIERTO", "ESPERANDO", "REFLEJO", "INICIALIZANDO", "BUSY", "DONE", "PAUSADO", "DETENIDO", "RECUPERACIÓN", "EN MOVIMIENTO")):
         return theme.WARNING
     return theme.SUCCESS
 

@@ -58,6 +58,34 @@ class FakeTransport:
         )
 
 
+@pytest.mark.parametrize("method,operation", [("read_holding_registers", "read_status"),
+                                              ("write_register", "clear_command"),
+                                              ("close", "close")])
+def test_transport_exception_normalized_without_retry(method, operation):
+    from pymodbus.exceptions import ConnectionException
+    transport = FakeTransport()
+    calls = []
+
+    def fail(*args, **kwargs):
+        calls.append(args)
+        raise ConnectionException("test disconnect")
+
+    setattr(transport, method, fail)
+    with pytest.raises(ModbusConnectionError) as error:
+        getattr(ModbusClient("test.invalid", transport=transport), operation)()
+    assert isinstance(error.value.__cause__, ConnectionException)
+    assert len(calls) == 1
+
+
+def test_productive_transport_disables_request_retries(monkeypatch):
+    from ur_tictactoe.communication import modbus_client
+    arguments = []
+    monkeypatch.setattr(modbus_client, "ModbusTcpClient",
+                        lambda *args, **kwargs: arguments.append(kwargs) or FakeTransport())
+    ModbusClient("test.invalid")
+    assert arguments[0]["retries"] == 0
+
+
 @pytest.mark.parametrize("command", range(1, 10))
 def test_cells_one_through_nine_are_valid_commands(command: int) -> None:
     assert validate_command(command) == command

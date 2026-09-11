@@ -5,7 +5,7 @@ import customtkinter as ctk
 from ur_tictactoe.desktop.commissioning_status import (
     latest_commissioning, validation_history, next_operational_step,
 )
-from ur_tictactoe.desktop.help_content import SECTIONS, SAFETY, BOARD_MAP, help_text
+from ur_tictactoe.desktop.help_content import SECTIONS, ADVANCED_SECTIONS, SAFETY, BOARD_MAP, USER_HELP, help_text
 from ur_tictactoe.desktop.operator_guidance import (
     STEP_TITLES, HISTORY_NOTICE, PROBLEMS, procedure, problem_guidance,
 )
@@ -23,17 +23,22 @@ class HelpPanel(ctk.CTkFrame):
         self.general = general_card.winfo_children()[0]
         row = ctk.CTkFrame(general_card, fg_color="transparent")
         row.pack(fill="x", padx=14, pady=(0, 10))
-        row.grid_columnconfigure((0, 1, 2, 3), weight=1, uniform="states")
+        row.grid_columnconfigure((0, 1, 2), weight=1, uniform="states")
         self.status_labels = {}
-        for col, name in enumerate(("Cámara", "Tablero", "Robot", "Perfil")):
+        for col, name in enumerate(("Cámara", "Tablero", "Robot")):
             item = ctk.CTkFrame(row, fg_color="transparent")
             item.grid(row=0, column=col, sticky="ew", padx=(0, 8))
             label(item, name, color=theme.TEXT_SECONDARY).pack(anchor="w")
             self.status_labels[name] = badge(item, "—")
             self.status_labels[name].pack(fill="x")
-        self.section = ctk.CTkOptionMenu(self, values=list(SECTIONS), width=235,
+        self.section = ctk.CTkSegmentedButton(self, values=list(SECTIONS),
                                         command=lambda _: self.select_section())
+        self.section.set(SECTIONS[0])
         self.section.pack(anchor="w", pady=(0, 8))
+        self.advanced_row = ctk.CTkFrame(self, fg_color="transparent", height=1)
+        self.advanced_row.pack(fill="x")
+        self.advanced_section = ctk.CTkOptionMenu(self.advanced_row, values=list(ADVANCED_SECTIONS), width=235,
+                                                 command=lambda _: self.select_section())
         self.content = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.content.pack(fill="both", expand=True)
         self.report = None
@@ -57,6 +62,7 @@ class HelpPanel(ctk.CTkFrame):
         self.content._parent_canvas.yview_moveto(0)
 
     def show_procedure(self, step):
+        self.section.set("INFORMACIÓN TÉCNICA")
         self.selected_procedure = step
         self._key = None
         self.refresh()
@@ -94,17 +100,28 @@ class HelpPanel(ctk.CTkFrame):
         snapshot = self.application.snapshot()
         diagnostic = self.application.diagnostic_snapshot()
         for name, value in (("Cámara", snapshot.camera_status), ("Tablero", snapshot.board_status),
-                            ("Robot", snapshot.robot_status), ("Perfil", PROFILE_LABELS[diagnostic.profile])):
+                            ("Robot", snapshot.robot_status)):
             self.status_labels[name].configure(text=value, text_color=status_color(value))
         live = ((snapshot.camera_status, snapshot.board_status, snapshot.robot_status,
                  diagnostic.visible_ids, diagnostic.illumination, diagnostic.profile)
-                if self.section.get() == "Solucionar problema" else None)
-        key = (self.section.get(), self.selected_procedure, self.selected_problem, live)
+                if self.section.get() == "Estado del sistema" or (
+                    self.section.get() == "INFORMACIÓN TÉCNICA" and
+                    self.advanced_section.get() == "Solucionar problema" and not self.selected_procedure
+                ) else None)
+        key = (self.section.get(), self.advanced_section.get(), self.selected_procedure, self.selected_problem, live)
         if key == self._key:
             return
         self._key = key
+        if self.section.get() == "INFORMACIÓN TÉCNICA":
+            self.advanced_section.pack(anchor="w", pady=(0, 8))
+        else:
+            self.advanced_section.pack_forget()
         for child in self.content.winfo_children():
             child.destroy()
+        if self.section.get() != "INFORMACIÓN TÉCNICA":
+            for title, text in USER_HELP:
+                self._card(title, text)
+            return
         if self.selected_procedure:
             step = self.selected_procedure
             panel = self._card(f"{step} — {STEP_TITLES[step].upper()}")
@@ -115,7 +132,7 @@ class HelpPanel(ctk.CTkFrame):
             self._card("CONSULTA ÚNICAMENTE", "Ejecutar desde harness de commissioning. "
                        "Este panel no ejecuta acciones.\n\n" + SAFETY)
             return
-        section = self.section.get()
+        section = self.advanced_section.get()
         if section == "Puesta en marcha":
             step = next_operational_step(self.history)
             panel = self._card("SIGUIENTE PASO RECOMENDADO")

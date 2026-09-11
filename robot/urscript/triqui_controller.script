@@ -139,6 +139,9 @@ def triqui_controller():
     end
   end
 
+  # Discard a command retained from a previous execution before accepting work.
+  # Restarting PolyScope must never replay a residual CELL command.
+  write_port_register(COMMAND_REGISTER, COMMAND_IDLE)
   global controller_status = STATUS_READY
   write_port_register(STATUS_REGISTER, controller_status)
   textmsg("Triqui controller ready; MOTION_MODE", MOTION_MODE)

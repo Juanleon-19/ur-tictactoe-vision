@@ -170,6 +170,64 @@ def test_modbus_state_machine_is_unchanged():
     assert hashlib.sha256(protocol.encode()).hexdigest() == "845ba95b3d65286a18bd35457b588e3b219efb406126e31f46c20c0f672ed478"
 
 
+def test_startup_clears_command_before_ready_and_operational_loop():
+    clear = "write_port_register(COMMAND_REGISTER, COMMAND_IDLE)"
+    assert constant("COMMAND_IDLE") == "0"
+    assert CODE.count(clear) == 1
+    assert CODE.index(clear) < CODE.index("global controller_status = STATUS_READY")
+    assert CODE.index(clear) < CODE.index("write_port_register(STATUS_REGISTER, controller_status)")
+    assert CODE.index(clear) < CODE.index("while (True):") < CODE.index("read_port_register(COMMAND_REGISTER)")
+
+
+def run_operational_subset(stale, *, clear_at_start=True, fresh_cell=None):
+    """Run the actual scalar init/loop subset with in-memory registers, no UR API."""
+    import textwrap
+    clear = "write_port_register(COMMAND_REGISTER, COMMAND_IDLE)"
+    source = CODE[CODE.index("  " + clear):CODE.rindex("\nend")]
+    if not clear_at_start:
+        source = source.replace("  " + clear, "")  # Reproduce the prior hazard.
+    lines = []
+    for line in textwrap.dedent(source).splitlines():
+        if not line.strip() or line.strip() == "end":
+            continue
+        line = line.replace("global ", "").replace("local ", "")
+        line = line.replace("while (True):", "for tick in range(3):")
+        lines.append(line)
+        if line.endswith(":"):
+            lines.append(" " * (len(line) - len(line.lstrip()) + 2) + "pass")
+    registers, writes, cells = {128: stale}, [], []
+    def write(address, value):
+        registers[address] = value
+        writes.append((address, value))
+    def idle(_seconds):
+        if fresh_cell is not None and not cells:
+            registers[128] = fresh_cell
+    env = {"__builtins__": {}, "range": range, "MOTION_MODE": 2,
+           "write_port_register": write, "read_port_register": registers.__getitem__,
+           "textmsg": lambda *args: None, "sleep": idle,
+           "execute_cell": lambda cell: cells.append(cell) or True}
+    env.update({name: int(constant(name)) for name in (
+        "COMMAND_REGISTER", "STATUS_REGISTER", "COMMAND_IDLE",
+        "STATUS_READY", "STATUS_BUSY", "STATUS_DONE", "STATUS_ERROR")})
+    exec("\n".join(lines), env)
+    return registers, writes, cells
+
+
+@pytest.mark.parametrize("stale", range(1, 10))
+def test_stale_command_cannot_execute_after_restart(stale):
+    registers, writes, cells = run_operational_subset(stale)
+    assert writes == [(128, 0), (129, 0)]
+    assert registers == {128: 0, 129: 0} and cells == []
+    # The very same source with the startup clear removed reproduces the bug.
+    assert run_operational_subset(stale, clear_at_start=False)[2] == [stale]
+
+
+def test_startup_clear_does_not_discard_later_valid_turn():
+    _, writes, cells = run_operational_subset(9, fresh_cell=5)
+    assert cells == [5]
+    assert writes == [(128, 0), (129, 0), (129, 1), (129, 2)]
+
+
 def test_c1_through_c7_procedures_and_handshake_are_unchanged():
     # Frozen at f6887c1; includes helper functions used by C1-C7.
     import hashlib

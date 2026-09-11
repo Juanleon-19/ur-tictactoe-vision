@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+from tkinter import messagebox
 import customtkinter as ctk
 from PIL import Image
 from pathlib import Path
@@ -14,7 +15,7 @@ from ur_tictactoe.desktop import theme
 from ur_tictactoe.desktop.diagnostic_panel import DiagnosticPanel
 from ur_tictactoe.desktop.operator_style import card
 from ur_tictactoe.desktop.help_content import start_explanation
-from ur_tictactoe.desktop.operator_panels import CameraControls
+from ur_tictactoe.desktop.operator_panels import CameraControls, RobotControls
 from ur_tictactoe.desktop.help_panel import HelpPanel
 from ur_tictactoe.game import (
     DRAW,
@@ -32,6 +33,7 @@ STATE_LABELS = {
     RuntimeState.WAITING_ROBOT: "Preparando jugada del robot",
     RuntimeState.ROBOT_BUSY: "Robot en movimiento",
     RuntimeState.VERIFYING_ROBOT: "Verificando jugada",
+    RuntimeState.ACKNOWLEDGING_ROBOT: "Esperando READY del robot",
     RuntimeState.GAME_OVER: "Partida terminada",
     RuntimeState.ERROR: "Error",
 }
@@ -51,6 +53,8 @@ class DesktopWindow:
     def __init__(self, application: GameApplication) -> None:
         ctk.set_appearance_mode("light")
         self.application = application
+        self._shutdown_started = False
+        self._closed = False
         self.root = ctk.CTk(fg_color=theme.BACKGROUND)
         self.root.title("Robot Triqui")
         self.root.geometry(self._centered_geometry(900, 620))
@@ -64,21 +68,32 @@ class DesktopWindow:
             font=ctk.CTkFont("Segoe UI", 10), height=20,
         )
         self.author_footer.grid(row=2, column=0, sticky="e", padx=20)
+        self._shutdown_callback = self.shutdown_all
+        self.exit_button = ctk.CTkButton(self.root, text="SALIR", width=100, height=28,
+                                        command=self._shutdown_callback)
+        self.exit_button.grid(row=2, column=0, sticky="w", padx=20, pady=4)
+        self.root.protocol("WM_DELETE_WINDOW", self._shutdown_callback)
         game_tab = self.tabs.add("JUEGO")
         game_tab.grid_rowconfigure(0, weight=1)
         game_tab.grid_columnconfigure(0, weight=1)
         diagnostic_tab = self.tabs.add("CÁMARA / DIAGNÓSTICO")
-        vision_card = card(diagnostic_tab, "CONFIGURACIÓN DE VISIÓN")
-        vision_card.pack(fill="x", padx=12, pady=(6, 8))
+        camera_card = card(diagnostic_tab, "CÁMARA · SELECCIÓN Y ACCIONES")
+        camera_card.pack(fill="x", padx=12, pady=(4, 6))
+        self.camera_controls = CameraControls(camera_card, application)
+        self.robot_diagnostics = ctk.CTkLabel(
+            camera_card, text="", font=ctk.CTkFont("Segoe UI", 11, "bold"), anchor="w")
+        self.robot_diagnostics.pack(fill="x", padx=14, pady=(0, 4))
+        vision_card = ctk.CTkFrame(diagnostic_tab, fg_color=theme.CARD_BACKGROUND, corner_radius=12)
+        vision_card.pack(fill="x", padx=12, pady=(0, 6))
         vision_controls = ctk.CTkFrame(vision_card, fg_color="transparent")
-        vision_controls.pack(fill="x", padx=14)
+        vision_controls.pack(fill="x", padx=14, pady=8)
         ctk.CTkLabel(vision_controls, text="Perfil:").pack(side="left", padx=(0, 8))
         self.vision_profile = tk.StringVar(
             value=PROFILE_LABELS[application.diagnostic_snapshot().profile]
         )
-        self.profile_selector = ctk.CTkOptionMenu(
+        self.profile_selector = ctk.CTkSegmentedButton(
             vision_controls, values=list(VISION_PROFILES), variable=self.vision_profile,
-            width=115, state="disabled" if application.simulation else "normal",
+            state="disabled" if application.simulation else "normal",
         )
         self.profile_selector.pack(side="left")
         self.apply_profile_button = ctk.CTkButton(
@@ -93,7 +108,6 @@ class DesktopWindow:
             text_color=theme.PRIMARY,
         )
         self.active_profile.pack(side="left")
-        self.camera_controls = CameraControls(vision_card, application)
         self.profile_feedback = self.camera_controls.feedback
         self.help_panel = HelpPanel(self.tabs.add("AYUDA / PUESTA EN MARCHA"), application)
         diagnostic_body = ctk.CTkFrame(diagnostic_tab, fg_color="transparent")
@@ -119,6 +133,30 @@ class DesktopWindow:
     def run(self) -> None:
         self.root.mainloop()
 
+    def shutdown_all(self) -> None:
+        if self._shutdown_started:
+            return
+        self._shutdown_started = True
+        warning = self.application.shutdown_warning
+        self.application.shutdown_all()
+        self.exit_button.configure(state="disabled")
+        panel = ctk.CTkFrame(self.root)
+        panel.grid(row=1, column=0, sticky="nsew", padx=24, pady=16)
+        ctk.CTkLabel(panel, text="Cerrando aplicación…", font=ctk.CTkFont(size=20, weight="bold")).pack(pady=(60, 10))
+        ctk.CTkLabel(panel, text="Esperando liberación de dispositivos.\nLa ventana se cerrará al terminar.").pack()
+        if warning:
+            messagebox.showwarning("Robot en movimiento", warning, parent=self.root)
+        self._finish_shutdown()
+
+    def _finish_shutdown(self) -> None:
+        if self.application.shutdown_complete:
+            if self.application.shutdown_error:
+                messagebox.showwarning("Cierre de dispositivos", self.application.shutdown_error, parent=self.root)
+            self._closed = True
+            self.root.destroy()
+        else:
+            self.root.after(50, self._finish_shutdown)
+
     def _centered_geometry(self, width: int, height: int) -> str:
         x = max((self.root.winfo_screenwidth() - width) // 2, 0)
         y = max((self.root.winfo_screenheight() - height) // 2, 0)
@@ -143,7 +181,7 @@ class DesktopWindow:
             self._logo_image = ctk.CTkImage(image, size=size)
             self.logo_label = ctk.CTkLabel(header, text="", image=self._logo_image)
             self.logo_label.grid(
-                row=0, column=0, rowspan=3, padx=(0, 14)
+                row=0, column=0, rowspan=2, padx=(0, 14)
             )
         self.title_label = ctk.CTkLabel(
             header, text="ROBOT TRIQUI", font=ctk.CTkFont("Segoe UI", 26, "bold"),
@@ -154,12 +192,6 @@ class DesktopWindow:
             header, text="Sistema autónomo de juego", font=ctk.CTkFont("Segoe UI", 14),
             text_color=theme.TEXT_SECONDARY,
         ).grid(row=1, column=1, sticky="nw")
-        self.academic_label = ctk.CTkLabel(
-            header, text="Proyecto académico\nPontificia Universidad Javeriana",
-            justify="left", text_color=theme.TEXT_SECONDARY,
-            font=ctk.CTkFont("Segoe UI", 12),
-        )
-        self.academic_label.grid(row=2, column=1, sticky="nw", pady=(6, 0))
         simulated = self.application.simulation
         self.mode_badge = ctk.CTkLabel(
             header, text=f"  {'SIMULACIÓN' if simulated else 'SISTEMA REAL'}  ", height=28,
@@ -170,6 +202,8 @@ class DesktopWindow:
         self.mode_badge.grid(row=0, column=2, rowspan=2, sticky="e")
 
     def _show_home(self) -> None:
+        if self._shutdown_started:
+            return
         self._clear()
         self.container.grid_rowconfigure(1, weight=1)
         self.container.grid_columnconfigure((0, 1), weight=1, uniform="cards")
@@ -193,9 +227,11 @@ class DesktopWindow:
         )
         self.picaro_note.pack(anchor="w", pady=(2, 0))
         self.difficulty.trace_add("write", self._update_picaro_note)
-        self._field(config, "Quién inicia", (18, 6))
-        self._radio(config, "Robot", self.human_first, False).pack(anchor="w", pady=3)
-        self._radio(config, "Humano", self.human_first, True).pack(anchor="w", pady=3)
+        self._field(config, "Quién inicia", (8, 4))
+        starts = ctk.CTkFrame(config, fg_color="transparent")
+        starts.pack(fill="x")
+        self._radio(starts, "Robot", self.human_first, False).pack(side="left", pady=3)
+        self._radio(starts, "Humano", self.human_first, True).pack(side="left", pady=3)
 
         status = self._card("ESTADO DEL SISTEMA", 1)
         snapshot = self.application.snapshot()
@@ -205,14 +241,11 @@ class DesktopWindow:
                 ("Tablero", snapshot.board_status),
             )
         }
+        self.robot_controls = RobotControls(status, self.application)
 
         footer = ctk.CTkFrame(self.container, fg_color="transparent")
         footer.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(18, 0))
         footer.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(
-            footer, text="Pontificia Universidad Javeriana",
-            justify="left", text_color=theme.TEXT_SECONDARY, font=ctk.CTkFont("Segoe UI", 11),
-        ).grid(row=0, column=0, sticky="w")
         ctk.CTkButton(
             footer, text="INICIAR PARTIDA", command=self._start_game, width=220, height=48,
             corner_radius=8, fg_color=theme.PRIMARY, hover_color=theme.PRIMARY_HOVER,
@@ -228,12 +261,14 @@ class DesktopWindow:
         ctk.CTkLabel(
             shell, text=title, font=ctk.CTkFont("Segoe UI", 13, "bold"),
             text_color=theme.PRIMARY,
-        ).pack(anchor="w", padx=24, pady=(22, 14))
+        ).pack(anchor="w", padx=24, pady=(12, 8))
         content = ctk.CTkFrame(shell, fg_color="transparent")
-        content.pack(fill="both", expand=True, padx=24, pady=(0, 22))
+        content.pack(fill="both", expand=True, padx=24, pady=(0, 12))
         return content
 
     def _show_game(self) -> None:
+        if self._shutdown_started:
+            return
         self._clear()
         self.container.grid_rowconfigure(1, weight=1)
         self.container.grid_columnconfigure(0, weight=3, uniform="game")
@@ -324,7 +359,7 @@ class DesktopWindow:
 
     def _status_row(self, parent: ctk.CTkFrame, name: str, value: str) -> tuple[ctk.CTkLabel, ctk.CTkLabel]:
         row = ctk.CTkFrame(parent, fg_color="transparent")
-        row.pack(fill="x", pady=8)
+        row.pack(fill="x", pady=4)
         dot = ctk.CTkLabel(row, text="●", width=20, font=ctk.CTkFont("Segoe UI", 15))
         dot.pack(side="left")
         ctk.CTkLabel(row, text=name, width=90, anchor="w", font=ctk.CTkFont("Segoe UI", 12)).pack(side="left")
@@ -347,6 +382,10 @@ class DesktopWindow:
     def _start_game(self) -> None:
         started = self.application.new_game(self.difficulty.get(), self.human_first.get())
         self._start_blocked = not started and not self.application.simulation
+        if self._start_blocked:
+            self.application.robot_feedback = start_explanation(self.application.snapshot())
+            self.robot_controls.refresh()
+            return  # Keep REINICIAR SISTEMA accessible on the home screen.
         self.root.after(50, self._show_game)
 
     def _update_picaro_note(self, *_args: object) -> None:
@@ -366,12 +405,20 @@ class DesktopWindow:
         self._render()
 
     def _tab_changed(self) -> None:
+        if self._shutdown_started:
+            return
         if self.tabs.get() == "AYUDA / PUESTA EN MARCHA":
             self.help_panel.reload_report()
+        elif self.tabs.get() == "CÁMARA / DIAGNÓSTICO" and self.application.robot_query_allowed:
+            self.application.refresh_status()
 
     def _tick(self) -> None:
+        if self._shutdown_started:
+            return
         self.application.update()
         self.camera_controls.refresh()
+        if self.robot_controls.winfo_exists():
+            self.robot_controls.refresh()
         state = self.application.snapshot()
         for name, value in (("Cámara", state.camera_status), ("Robot", state.robot_status),
                             ("Tablero", state.board_status)):
@@ -401,6 +448,9 @@ class DesktopWindow:
 
     def _render_diagnostics(self) -> None:
         snapshot = self.application.diagnostic_snapshot()
+        self.robot_diagnostics.configure(text=(
+            f"Modbus: {snapshot.modbus_status}   |   Controlador: {snapshot.controller_status}"
+            f"   |   PolyScope: {snapshot.dashboard.program_state}"))
         self.active_profile.configure(text=f"Perfil activo: {PROFILE_LABELS[snapshot.profile]}")
         if snapshot.frame is None:
             self.camera_preview.configure(image=self._empty_preview, text="CÁMARA NO DISPONIBLE")
@@ -484,7 +534,7 @@ class DesktopWindow:
         value = value.upper()
         if "ERROR" in value:
             return theme.ERROR
-        if any(word in value for word in ("MOVIMIENTO", "ESPERANDO", "VERIFICANDO")):
+        if any(word in value for word in ("MOVIMIENTO", "ESPERANDO", "VERIFICANDO", "RECUPERACIÓN")):
             return theme.WARNING
         if "NO CONECT" in value or "NO DISPONIBLE" in value:
             return theme.DISABLED
@@ -499,5 +549,5 @@ def run_desktop_app(simulation: bool, config_path: Path | None = None) -> int:
             application.open_async()
         window.run()
     finally:
-        application.close()
+        application.shutdown_all(wait=True)
     return 0

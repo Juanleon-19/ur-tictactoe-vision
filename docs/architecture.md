@@ -16,7 +16,7 @@ Tablero digital 3×3
   ↓
 Reglas + Minimax
   ↓
-Comando lógico 1..9  ── Modbus TCP ──>  Selector de subprograma
+Comando lógico 1..9  ── Modbus TCP ──>  Selector Pn / Pn_UP en URScript
                                              ↓
                                         Pick & Place
 ```
@@ -165,19 +165,23 @@ Una cancelación elimina la intención pendiente sin alterar el tablero.
 
 ## Flujo físico aprobado
 
-PolyScope contiene `HOME`, `PICK_APPROACH`, un único `PICK` fijo, `PICK_EXIT` y
-`Play_Cell_1 ... Play_Cell_9`. Otra persona coloca cada ficha del robot en PICK.
-No hay magazine automático y Python nunca genera trayectorias. En integración,
-Python enviará solamente `COMMAND = 1..9` por Modbus.
+PolyScope contiene cuatro Point Features de colocación CELL1/CELL3/CELL7/CELL9,
+recogida y HOME/WAIT. Seis Assignments crean P1/P3/P7/P9/P_PICK/P_HOME antes del
+Script Node. El UR deriva P2/P4/P5/P6/P8 por promedios XYZ, con orientación P1.
+`pose_trans(Pn, p[0,0,-0.060,0,0,0])` eleva 60 mm sobre Tool Z; +Tool Z baja.
+P_PICK tiene la misma aproximación y HOME conserva su pose enseñada.
+Otra persona repone cada ficha en PICK. Python envía solo COMMAND=1..9,
+nunca coordenadas. Recalibrar el tablero requiere editar solo cuatro Features.
 
 La frontera de comunicación conserva separadas decisión y ejecución:
 
 ```text
-GameSession -> pending_robot_move -> ModbusClient -> futuro PolyScope
+GameSession -> pending_robot_move -> ModbusClient -> PolyScope
 ```
 
 `ModbusClient` solo lee `STATUS` y escribe `COMMAND`; una capa de integración
-externa confirmará o cancelará el movimiento pendiente según el handshake.
+externa verifica ocupación después de DONE y acusa con COMMAND0 antes de READY.
+El runtime real conserva evidencia de entrega incierta ante errores y no reenvía.
 
 La integración de software completa queda coordinada por ciclos no bloqueantes:
 
@@ -198,7 +202,7 @@ La arquitectura crecerá por responsabilidades:
 src/ur_tictactoe/
 ├── vision/          # Fases 1 y 2
 ├── game/            # Fase 3
-└── communication/   # Fase 5, aún no creada
+└── communication/   # Contrato 128/129 y transporte Modbus
 ```
 
 Estas carpetas futuras no deben crearse hasta que comience su fase correspondiente.

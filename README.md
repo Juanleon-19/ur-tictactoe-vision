@@ -2,7 +2,13 @@
 
 Sistema de visión artificial para que un robot **Universal Robots** juegue Triqui (Tic-Tac-Toe) contra una persona.
 
-El primer prototipo utilizará un **UR3**, una cámara fija, Python, OpenCV, marcadores ArUco y comunicación Modbus TCP. El movimiento del robot no se generará dinámicamente desde Python: las posiciones y trayectorias se enseñarán y validarán directamente en PolyScope mediante subprogramas.
+Para instalar y usar Robot Triqui en Windows: [guía de instalación](docs/installation.md).
+
+El prototipo usa **UR CB3 / PolyScope 3.14**, cámara fija, Python/OpenCV, ArUco y Modbus TCP. Python envía únicamente la celda. PolyScope calcula las posiciones desde cuatro Point Features de colocación y ejecuta el pick/place con Robotiq.
+
+Estado físico comunicado por el operador: C6/C7 aprobados, Mode1 para grid seguro y Mode2 con recogida, colocación y HOME probados; C12 y varios ciclos de C13 funcionaron. La aproximación validada es **Tool Z -60 mm**. Falta completar la aceptación end-to-end con visión: C14 permite primero un turno guiado y después una partida completa. Los tests automáticos no validan hardware.
+
+Antes del Script Node se requieren seis Assignments: `P1=CELL1_const`, `P3=CELL3_const`, `P7=CELL7_const`, `P9=CELL9_const`, `P_PICK=<Feature de recogida>` y `P_HOME=<Feature HOME/WAIT>`, seleccionados en PolyScope. P2/P4/P5/P6/P8 se derivan por promedios XYZ y todas las celdas usan la orientación P1. `Pn_UP = pose_trans(Pn, p[0,0,-0.060,0,0,0])`; +Tool Z baja, -Tool Z sube. Para recalibrar el tablero se editan sus cuatro Point Features. Ver [preparación exacta del programa](docs/polyscope-urscript.md).
 
 ## Objetivo
 
@@ -34,7 +40,7 @@ Modbus TCP
   ↓
 UR3 / PolyScope
   ↓
-Subprograma preenseñado
+Selección Pn / Pn_UP desde cuatro esquinas
   ↓
 Pick & Place
 ```
@@ -64,7 +70,7 @@ PolyScope será responsable de:
 - accionamiento de la herramienta;
 - posiciones de las nueve casillas;
 - velocidades, aceleraciones y movimientos seguros;
-- subprogramas de pick-and-place.
+- secuencia PICK → celda → HOME con Robotiq.
 
 ## Diseño ArUco de la V1
 
@@ -132,7 +138,7 @@ La interfaz V1 prevista es un comando Modbus mínimo:
 Ejemplo conceptual:
 
 ```text
-COMMAND = 1..9 -> PolyScope ejecuta Play_Cell_N
+COMMAND = 1..9 -> PolyScope selecciona Pn y ejecuta el modo configurado
 ```
 
 Los valores definitivos y las direcciones de registros se fijarán durante la fase de integración Modbus.
@@ -142,7 +148,7 @@ Los valores definitivos y las direcciones de registros se fijarán durante la fa
 1. **Vision & ArUco** — Logitech C920 y detección validada de los nueve IDs de celda.
 2. **Human Move Detection** — desaparición estable del marcador e ID → celda `1..9`.
 3. **Game Engine** — estado 3×3, reglas y Minimax.
-4. **PolyScope** — PICK fijo y nueve subprogramas preenseñados.
+4. **PolyScope** — cuatro esquinas, PICK fijo y HOME; celdas interpoladas en el UR.
 5. **Modbus** — Python envía únicamente `COMMAND = 1..9`.
 6. **Integration** — cámara → jugada → motor → Modbus → PolyScope.
 7. **Validation / Optional robustness** — geometría avanzada solo con evidencia.
