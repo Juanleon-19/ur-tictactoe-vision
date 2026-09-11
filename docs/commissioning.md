@@ -91,8 +91,9 @@ No incluye rutas de configuración ni IP del PC; el host del robot es un dato
 local de sesión. No introducir secretos en el campo host. Reports está ignorado.
 
 El operador confirmó C6 (cinco PASS consecutivos), C7, Assignments, Tool Z -60 mm,
-Mode1 y Robotiq/Mode2. C12 y varios movimientos C13 funcionaron físicamente.
-Completar la cobertura C13 y la aceptación C14. Esta iteración no ejecuta hardware.
+Mode1, Robotiq/Mode2 y C12. Estado final v1.0.0 confirmado por el operador:
+**C13 físico: PASS; C14 end-to-end físico: PASS**. Cada montaje debe registrar su
+propia evidencia. Esta actualización documental no ejecuta hardware.
 Los tests de pytest usan cámara, reloj, detección y transporte falsos; el
 observador y la puerta de aceptación de runtime son los productivos.
 

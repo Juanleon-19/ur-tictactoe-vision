@@ -1,273 +1,98 @@
-# Arquitectura V1
+# Arquitectura de Robot Triqui — v1.0.0
 
-## Principio de separación
+## Separación de responsabilidades
 
-La primera versión separa percepción/decisión y movimiento físico.
-
-```text
-PC / Python                              UR3 / PolyScope
-
-Cámara
-  ↓
-OpenCV + ArUco
-  └── 9 marcadores internos -> ID de celda / ocupación
-  ↓
-Tablero digital 3×3
-  ↓
-Reglas + Minimax
-  ↓
-Comando lógico 1..9  ── Modbus TCP ──>  Selector Pn / Pn_UP en URScript
-                                             ↓
-                                        Pick & Place
-```
-
-El PC indica **qué casilla** jugar. El UR determina **cómo moverse físicamente** porque sus trayectorias se enseñan previamente en PolyScope.
-
-## Sistemas de referencia
-
-En V1 existen dos referencias deliberadamente desacopladas:
-
-1. **Identificación visual de casillas**: definida directamente por IDs 10..18.
-2. **Referencia física del UR**: definida mediante posiciones enseñadas en PolyScope.
-
-ArUco no modifica automáticamente las poses del UR durante V1.
-
-Esta decisión reduce el riesgo de que un error de estimación visual produzca directamente una trayectoria cartesiana incorrecta.
-
-## Tablero y contrato de IDs
-
-La V1 utiliza exclusivamente nueve marcadores de celda, IDs 10..18.
+Python gestiona cámara, ArUco, observación temporal, juego, Minimax, Modbus y
+verificación. PolyScope ejecuta movimientos a partir de posiciones enseñadas.
+El PC indica qué celda jugar; no calcula ni transmite trayectorias cartesianas.
 
 ```text
-        ┌─────────┬─────────┬─────────┐
-        │ ID 10   │ ID 11   │ ID 12   │
-        │ CELL 1  │ CELL 2  │ CELL 3  │
-        ├─────────┼─────────┼─────────┤
-        │ ID 13   │ ID 14   │ ID 15   │
-        │ CELL 4  │ CELL 5  │ CELL 6  │
-        ├─────────┼─────────┼─────────┤
-        │ ID 16   │ ID 17   │ ID 18   │
-        │ CELL 7  │ CELL 8  │ CELL 9  │
-        └─────────┴─────────┴─────────┘
+C920 → Camera → ArucoDetector → BoardObserver → PhysicalBoardState
+                                                   ↓
+GUI → GameApplication → RealGameBackend → PhysicalGameRuntime
+                                                   ↓
+                                             GameSession / Minimax
+                                                   ↓
+                                              ModbusClient
+                                                   ↓
+                                    UR / PolyScope → PICK → PLACE → HOME
+                                                   ↓
+                                      Observación visual y acuse
 ```
 
-### Cell markers
+La GUI representa snapshots e intenciones; no implementa juego, visión ni protocolo.
+El modo simulado usa dispositivos falsos. Ver [desktop](desktop-app.md) y
+[runtime](mvp-runtime.md).
 
-`10..18` corresponden uno a uno con las nueve casillas:
+## Identificación y ocupación
+
+El contrato operacional es **DICT_5X5_50**, nueve marcadores:
 
 ```text
-10 -> 1    11 -> 2    12 -> 3
-13 -> 4    14 -> 5    15 -> 6
-16 -> 7    17 -> 8    18 -> 9
+10 → CELL1    11 → CELL2    12 → CELL3
+13 → CELL4    14 → CELL5    15 → CELL6
+16 → CELL7    17 → CELL8    18 → CELL9
 ```
 
-Su ausencia estable será una **señal candidata de ocupación**, no una confirmación inmediata.
+BoardObserver mantiene una ventana temporal y produce ocupación sin propietario
+X/O. Usa los IDs de celda; no exige marcadores externos. Una detección ausente
+no se convierte inmediatamente en jugada. El runtime compara estado físico y
+lógico, exige observación ready sin incertidumbre y acepta una única nueva
+ocupación durante el turno humano. Las retiradas o cambios múltiples no se
+interpretan como una jugada normal. El propietario se deriva del turno.
 
-## Modelo de ocupación previsto
+Las dos fichas deben ocultar el ArUco de forma repetible. Mano, robot, reflejos y
+falta de foco pueden afectar la observación; el montaje se acepta mediante
+[commissioning](commissioning.md). Perfil predeterminado: `robust`.
+No se cambian umbrales para compensar una fijación o iluminación deficiente.
 
-`BoardObserver` trabaja únicamente con la historia de IDs 10..18. Cada captura
-procesada aporta una muestra, incluso si no se detecta ningún marcador. Los IDs
-ajenos a las celdas se ignoran. Un error de captura no aporta una muestra.
+## Juego y verificación
 
-Se conservan `window_seconds=1.5`, `evaluation_period_seconds=0.25`,
-`state_change_seconds=0.5`, `free_ratio=0.70`, `occupied_ratio=0.20` y
-`min_valid_samples=3`. Este último indica el mínimo de muestras capturadas dentro
-de la ventana; no existe un filtro por referencias geométricas.
+[Game Engine](game-engine.md) implementa reglas y Minimax sin depender de hardware.
+GameSession mantiene intención y tablero lógico. En modo real, DONE inicia la
+verificación visual; la celda elegida debe aparecer ocupada junto con las ocupaciones
+esperadas. Solo después se confirma y acusa la jugada con COMMAND0, se espera
+READY y se cierra la conexión antes del siguiente turno.
 
-`ready` indica que hay muestras suficientes, no que el tablero esté vacío o que
-la imagen sea inequívoca. El inicio de partida exige además ausencia de celdas
-`OCCUPIED` y `UNCERTAIN`. El flicker ocasional se absorbe mediante los ratios
-temporales. Una oclusión prolongada aún puede parecer ocupación y requiere
-validación física; no se incorpora otro clasificador de visión.
+La entrega incierta se conserva como error; no hay reenvío automático. Experto e
+Intermedio están disponibles en modo real; Pícaro permanece solo en simulación.
+Ver [recuperación](recovery-diagnostics.md).
 
-Durante una partida:
+## Referencia física y movimiento
 
-```text
-VISIBLE -> FREE
-MISSING transitorio -> historial temporal / UNCERTAIN
-MISSING estable + validaciones -> OCCUPIED
-```
+La referencia visual por ID y la referencia física del UR están desacopladas.
+La cámara no corrige poses ni acredita por sí sola la alineación del tablero.
+Fijar el montaje y repetir las comprobaciones afectadas si se desplaza.
 
-La transición a `OCCUPIED` deberá considerar:
+PolyScope recibe P1/P3/P7/P9/P_PICK/P_HOME mediante seis Assignments de Point
+Features. El UR calcula las demás celdas por promedios XYZ con orientación P1.
+`pose_trans(Pn, p[0,0,-0.060,0,0,0])` eleva 60 mm en −Z Tool con el TCP validado.
+PICK es fijo y HOME conserva la pose enseñada. La reposición de fichas requiere
+preparación del operador. Seguir [PolyScope](polyscope-urscript.md).
 
-- persistencia durante varios frames;
-- que no haya una oclusión transitoria causada por mano o robot;
-- que la casilla estuviera libre en el estado lógico anterior;
-- que el cambio sea coherente con el turno actual.
+[Modbus](modbus-protocol.md) usa TCP 502, COMMAND128 (0 y 1..9) y STATUS129
+(READY/BUSY/DONE/ERROR). El modo físico se selecciona en el robot; Python no
+transmite poses ni selecciona modos. El cierre de la app no es parada física.
 
-La V1 no depende de reconocer visualmente la forma X/O para saber a quién pertenece una jugada: inicialmente esa propiedad puede derivarse del turno y del estado lógico. Si las pruebas muestran que hace falta una segunda fuente de evidencia, se añadirá una clasificación visual específica en su fase correspondiente.
+## Componentes y distribución
 
-### Detección lógica de una jugada humana
+- `vision/`: cámara, ArUco y observación/detección temporal.
+- `game/`: reglas, estrategias y sesión.
+- `communication/`: transporte y contrato Modbus.
+- El runtime integra estados físicos y juego; desktop coordina la aplicación Windows.
+- PolyScope carga [triqui_controller.script](../robot/urscript/triqui_controller.script).
 
-La Fase 2 compara los IDs visibles con los marcadores que ya se esperan ausentes
-porque sus celdas están ocupadas:
+La aplicación se distribuye como instalador Windows que incluye Python y sus
+dependencias. El harness de commissioning usa el entorno Python del repositorio.
+Ver [instalación](installation.md) y [construcción completa](build-from-scratch.md).
 
-```text
-IDs visibles -> nueva ausencia única -> N frames estables -> celda 1..9
-```
+## Validación e historia
 
-Si aparecen varias ausencias nuevas, la candidata se
-descarta. El detector solo produce el evento lógico; no decide el turno ni modifica
-el tablero del Game Engine.
+El operador confirmó C13 físico PASS y C14 end-to-end físico PASS para el cierre
+v1.0.0. La suite automática usa dobles y no valida movimientos reales.
 
-## Implicación mecánica
-
-El principio `marker missing -> candidate occupied` requiere que **ambos tipos de pieza oculten el ArUco de su casilla de forma repetible**.
-
-El diseño mecánico deberá garantizar una zona opaca común sobre el marcador. En particular, una pieza O con un agujero central no puede dejar el ArUco completamente visible cuando esté correctamente colocada.
-
-## Fase 1
-
-Componentes activos:
-
-```text
-main.py
-  ↓
-config.py
-  ↓
-vision/app.py
-  ├── camera.py
-  └── aruco.py
-```
-
-La Fase 1 solo valida detección y roles de IDs:
-
-- contador de `10..18` visibles;
-- listado de IDs de celda faltantes.
-
-No se clasifica ocupación todavía.
-
-No existe ninguna dependencia hacia módulos del robot.
-
-## Game Engine
-
-`game/engine.py` mantiene el tablero, valida celdas públicas `1..9` y aplica las
-reglas. `game/minimax.py` explora el árbol completo sin depender de visión ni del
-robot. El robot maximiza y el humano minimiza una puntuación terminal que favorece
-victorias rápidas y retrasa derrotas. Entre jugadas con idéntico valor óptimo, se
-prefiere la que deja menos respuestas humanas que conserven el mejor resultado
-del humano; este criterio nunca degrada el resultado Minimax.
-
-## Game Session
-
-La sesión coordina una partida sin acoplar visión ni ejecución física:
-
-```text
-HumanMoveDetector -> human_move -> GameSession -> Game Engine / Minimax
-                                             -> pending_robot_move
-                                             -> futura confirmación Modbus
-                                             -> confirm_robot_move()
-```
-
-`request_robot_move()` solo registra la intención elegida por Minimax. El tablero
-se actualiza cuando `confirm_robot_move()` confirma que la acción externa terminó.
-Una cancelación elimina la intención pendiente sin alterar el tablero.
-
-## Flujo físico aprobado
-
-PolyScope contiene cuatro Point Features de colocación CELL1/CELL3/CELL7/CELL9,
-recogida y HOME/WAIT. Seis Assignments crean P1/P3/P7/P9/P_PICK/P_HOME antes del
-Script Node. El UR deriva P2/P4/P5/P6/P8 por promedios XYZ, con orientación P1.
-`pose_trans(Pn, p[0,0,-0.060,0,0,0])` eleva 60 mm sobre Tool Z; +Tool Z baja.
-P_PICK tiene la misma aproximación y HOME conserva su pose enseñada.
-Otra persona repone cada ficha en PICK. Python envía solo COMMAND=1..9,
-nunca coordenadas. Recalibrar el tablero requiere editar solo cuatro Features.
-
-La frontera de comunicación conserva separadas decisión y ejecución:
-
-```text
-GameSession -> pending_robot_move -> ModbusClient -> PolyScope
-```
-
-`ModbusClient` solo lee `STATUS` y escribe `COMMAND`; una capa de integración
-externa verifica ocupación después de DONE y acusa con COMMAND0 antes de READY.
-El runtime real conserva evidencia de entrega incierta ante errores y no reenvía.
-
-La integración de software completa queda coordinada por ciclos no bloqueantes:
-
-```text
-C920/OpenCV -> HumanMoveDetector -> GameController -> GameSession
-                                                   -> ModbusClient -> PolyScope
-```
-
-Actualmente esta cadena está validada con IDs visibles y transporte Modbus
-simulados. `GameController` recibe sus componentes por inyección y no crea cámara,
-conexiones ni direcciones IP.
-
-## Evolución prevista
-
-La arquitectura crecerá por responsabilidades:
-
-```text
-src/ur_tictactoe/
-├── vision/          # Fases 1 y 2
-├── game/            # Fase 3
-└── communication/   # Contrato 128/129 y transporte Modbus
-```
-
-Estas carpetas futuras no deben crearse hasta que comience su fase correspondiente.
-
-## Robustez opcional
-
-### Observación física temporal
-
-`BoardObserver` mantiene una ventana temporal de detecciones y solo calcula
-ocupación con muestras que contienen los cuatro frame IDs. Produce un
-`PhysicalBoardState` independiente de `GameSession`, sin propietario X/O:
-
-```text
-IDs ArUco -> BoardObserver -> FREE / OCCUPIED / UNCERTAIN / NOT_READY
-```
-
-La integración futura durante el turno humano será:
-
-```text
-PhysicalBoardState
-  -> comparar con Board lógico
-  -> new_cells = physical_occupied - logical_occupied
-```
-
-En modo normal se aceptará una jugada solo si aparece exactamente una celda
-nueva y no desaparece ninguna ocupada. Ante cambios múltiples se esperará otro
-estado estable o se invalidará la observación.
-
-Después de un movimiento robot, `STATUS DONE` activará la observación y se
-verificará que la celda esperada quedó `OCCUPIED` antes de llamar a
-`confirm_robot_move()`. Esta integración está documentada, no implementada.
-
-### Preparación del futuro modo PÍCARO
-
-El observador actual maneja únicamente ocupación. Más adelante, las X físicas
-verdes y los círculos amarillos sobre el tablero plateado podrán distinguirse
-por color mediante HSV/ROI. No se prevé reconocer la geometría X/O y todavía no
-existe código HSV.
-
-### Distribución futura
-
-El producto final será una aplicación de escritorio Windows, no una aplicación
-web. Permitirá seleccionar modo de juego, quién inicia e iniciar una partida.
-La ruta prevista es aplicación Python -> PyInstaller o equivalente -> aplicación
-distribuible -> instalador `.exe` (por ejemplo, Inno Setup), incluyendo las
-dependencias para no exigir una instalación manual de Python. No se implementa
-GUI, empaquetado ni instalador en esta tarea.
-
-La Fase 7 puede incorporar, solo con evidencia experimental:
-
-```text
-ArUco / ChArUco
-  ↓
-calibración de cámara
-  ↓
-pose 3D del tablero
-  ↓
-transformación cámara ↔ robot
-  ↓
-corrección automática de posiciones
-```
-
-Ese alcance no pertenece al MVP.
-
-## Mejoras futuras
-
-Los IDs 0..3 podrían incorporarse como referencia geométrica/homografía opcional.
-No están disponibles ni forman parte del sistema operacional actual.
+El diseño inicial de 13 marcadores con IDs 0..3 externos y la referencia Plane
+Feature son históricos. El flujo auxiliar HumanMoveDetector/GameController
+se conserva en código y tests; la GUI real y C14 usan BoardObserver y
+PhysicalGameRuntime. Homografía, pose 3D, hand-eye y reconocimiento X/O no son
+requisitos de la arquitectura operacional. Ver [plan e historia](../PLAN.md).

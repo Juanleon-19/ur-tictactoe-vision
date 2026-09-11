@@ -19,35 +19,29 @@ Python no debe generar trayectorias cartesianas del UR en la V1.
 
 ## Contrato ArUco V1
 
-La arquitectura de visión utiliza **13 marcadores** del mismo diccionario:
+La arquitectura operacional final utiliza **9 marcadores** DICT_5X5_50:
+`cell_ids = [10,11,12,13,14,15,16,17,18]`, uno por celda lógica `1..9`.
+Identifican casillas y sirven de señal primaria de ocupación por oclusión.
+La ausencia aislada no equivale a OCCUPIED: conservar la validación temporal de
+BoardObserver y la coherencia física/lógica del runtime.
 
-- `frame_ids = [0,1,2,3]`: cuatro marcadores externos persistentes para referencia/alineación del tablero;
-- `cell_ids = [10,11,12,13,14,15,16,17,18]`: uno por cada celda lógica `1..9` en ese mismo orden.
-
-No sustituir este diseño por cuatro marcadores externos únicamente ni por nueve marcadores internos únicamente sin autorización explícita.
-
-Los marcadores de celda tendrán doble función:
-
-1. identificar de forma inequívoca cada casilla;
-2. servir como señal primaria de ocupación cuando la pieza colocada ocluya el marcador.
-
-La ausencia de un marcador de celda **no equivale automáticamente a OCCUPIED**. En la fase correspondiente deberá validarse temporalmente y descartarse oclusión por mano, robot, iluminación, desenfoque u otros fallos de detección.
-
-Durante Fase 1 solo se reportan marcadores visibles/faltantes; no se implementa todavía la máquina de estados FREE/UNKNOWN/OCCUPIED.
+El diseño original de 13 marcadores, incluidos `frame_ids = [0,1,2,3]`, es
+histórico y fue sustituido con autorización explícita. No exigir esos IDs para
+la operación ni reintroducirlos sin un alcance nuevo autorizado.
 
 ## Fases V1 aprobadas
 
 Consultar `PLAN.md` antes de realizar cambios. La arquitectura vigente es:
 
-- Fase 1: visión y los 13 ArUco, validada experimentalmente;
+- Fase 1: visión y los nueve ArUco operacionales, validada experimentalmente;
 - Fase 2: detección temporal de la jugada humana por desaparición estable del marcador;
-- Fase 3: motor 3×3 y Minimax, autorizado para desarrollo anticipado porque no depende de hardware;
-- Fase 4: trayectorias preenseñadas en PolyScope con un único PICK fijo;
+- Fase 3: motor 3×3 y Minimax implementados y validados;
+- Fase 4: cuatro Point Features de colocación, PICK fijo y HOME en PolyScope;
 - Fase 5: Modbus envía solamente `COMMAND = 1..9`;
-- Fase 6: integración completa;
+- Fase 6: integración completa; C13 y C14 físicos PASS confirmados por el operador;
 - Fase 7: robustez opcional, solo cuando exista evidencia experimental.
 
-Durante la Fase 3 están fuera de alcance:
+Restricciones históricas del desarrollo aislado de Fase 3 (no describen el estado final integrado):
 
 - RTDE;
 - URScript dinámico;
@@ -74,8 +68,8 @@ identificación directa por IDs resulte fiable.
 8. Manejar errores de cámara con mensajes claros; no usar excepciones silenciosas.
 9. No añadir machine learning si una solución geométrica/determinista satisface el requisito.
 10. Evitar dependencias que no tengan una necesidad demostrada.
-11. Mantener separados los roles de `frame_ids` y `cell_ids`.
-12. No inferir que un marcador faltante es ocupación hasta implementar y validar la lógica temporal de Fase 2.
+11. Mantener el contrato operacional de nueve `cell_ids`; no añadir referencias externas sin autorización.
+12. No inferir ocupación de una ausencia aislada; conservar la lógica temporal validada.
 
 ## Git
 
@@ -88,13 +82,13 @@ identificación directa por IDs resulte fiable.
 
 ## Seguridad del robot
 
-Aunque el robot no forma parte de la Fase 3, conservar estas reglas para fases posteriores:
+Conservar estas reglas en todas las tareas:
 
 - ningún movimiento físico debe ejecutarse automáticamente como parte de tests;
-- HOME, PICK y las nueve posiciones de juego se enseñarán en PolyScope;
+- HOME, PICK y cuatro esquinas se enseñan en PolyScope; las otras celdas se derivan en el UR;
 - velocidades, aceleraciones, TCP, payload y poses reales nunca se inventan;
 - cualquier activación de movimiento debe tener una ruta clara de parada y un estado conocido;
-- la visión no debe ordenar una jugada si los marcadores externos no confirman la condición de referencia/alineación establecida.
+- la visión no debe ordenar jugadas sin la condición de readiness del runtime; la alineación física se verifica en commissioning, no mediante marcadores externos.
 
 ## Criterio para añadir una dependencia
 

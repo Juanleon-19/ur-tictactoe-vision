@@ -43,3 +43,6 @@ dist/
 release/
 installer/output/
 *.egg-info/
+
+# Original mechanical deliveries
+incoming_hardware/

@@ -1,307 +1,221 @@
-# UR Tic-Tac-Toe Vision
+# Robot Triqui
 
-Sistema de visión artificial para que un robot **Universal Robots** juegue Triqui (Tic-Tac-Toe) contra una persona.
+Sistema autónomo de Tic-Tac-Toe desarrollado para Universal Robots,
+con OpenCV + ArUco, Minimax, Modbus TCP y una aplicación de escritorio.
 
-Para instalar y usar Robot Triqui en Windows: [guía de instalación](docs/installation.md).
+## Descargar
 
-El prototipo usa **UR CB3 / PolyScope 3.14**, cámara fija, Python/OpenCV, ArUco y Modbus TCP. Python envía únicamente la celda. PolyScope calcula las posiciones desde cuatro Point Features de colocación y ejecuta el pick/place con Robotiq.
+### Windows — v1.0.0
 
-Estado físico comunicado por el operador: C6/C7 aprobados, Mode1 para grid seguro y Mode2 con recogida, colocación y HOME probados; C12 y varios ciclos de C13 funcionaron. La aproximación validada es **Tool Z -60 mm**. Falta completar la aceptación end-to-end con visión: C14 permite primero un turno guiado y después una partida completa. Los tests automáticos no validan hardware.
+**[⬇ Descargar RobotTriqui_Setup.exe](https://github.com/Juanleon-19/ur-tictactoe-vision/releases/download/v1.0.0/RobotTriqui_Setup.exe)**
 
-Antes del Script Node se requieren seis Assignments: `P1=CELL1_const`, `P3=CELL3_const`, `P7=CELL7_const`, `P9=CELL9_const`, `P_PICK=<Feature de recogida>` y `P_HOME=<Feature HOME/WAIT>`, seleccionados en PolyScope. P2/P4/P5/P6/P8 se derivan por promedios XYZ y todas las celdas usan la orientación P1. `Pn_UP = pose_trans(Pn, p[0,0,-0.060,0,0,0])`; +Tool Z baja, -Tool Z sube. Para recalibrar el tablero se editan sus cuatro Point Features. Ver [preparación exacta del programa](docs/polyscope-urscript.md).
+Windows 10/11 x64. **No necesita Python** para usar el instalador.
+SmartScreen puede advertir porque el instalador no está firmado.
+[Ver la Release completa v1.0.0](https://github.com/Juanleon-19/ur-tictactoe-vision/releases/tag/v1.0.0).
 
-## Objetivo
+## Demostración
 
-Construir un sistema modular capaz de:
+> Foto del montaje real: pendiente de agregar.
 
-1. observar un tablero 3×3 mediante los ArUco de sus nueve casillas;
-2. identificar individualmente cada casilla mediante un ArUco propio;
-3. detectar si una casilla pasa de libre a ocupada por la oclusión estable de su marcador;
-4. mantener el estado lógico de la partida;
-5. seleccionar una respuesta mediante un algoritmo de juego, inicialmente Minimax;
-6. enviar al UR únicamente el número de la casilla elegida;
-7. ejecutar en PolyScope una trayectoria preenseñada de pick-and-place;
-8. verificar visualmente que la jugada del robot se realizó correctamente.
+> Video de funcionamiento: pendiente de agregar.
 
-## Arquitectura V1
+La [lista de material audiovisual](docs/media.md) está preparada para completar la demostración.
 
-```text
-Cámara
-  ↓
-OpenCV + ArUco
-  ↓
-9 ArUco internos -> identificación de celdas y ocupación
-  ↓
-Estado 3×3 + reglas + Minimax
-  ↓
-Comando de casilla 1..9
-  ↓
-Modbus TCP
-  ↓
-UR3 / PolyScope
-  ↓
-Selección Pn / Pn_UP desde cuatro esquinas
-  ↓
-Pick & Place
-```
+## Qué hace el sistema
 
-### Responsabilidad de Python
+Robot Triqui observa un tablero 3×3, identifica la jugada humana por la desaparición
+estable del ArUco de una casilla y decide una respuesta. El UR recoge una ficha
+en un PICK fijo, la coloca y vuelve a HOME. La cámara verifica la colocación antes
+de continuar. El suministro de fichas en PICK requiere preparación del operador.
 
-Python será responsable de:
+La aplicación ofrece Experto (Minimax), Intermedio y Pícaro, este último únicamente
+en simulación. Permite elegir quién inicia y consultar el diagnóstico de cámara y robot.
 
-- adquisición de imagen;
-- detección ArUco;
-- asociación ID ArUco ↔ casilla lógica;
-- detección temporal de casillas libres/ocupadas;
-- lógica del juego;
-- decisión de la jugada;
-- comunicación Modbus;
-- verificación posterior de la jugada.
+## Configuración validada
 
-Python **no calculará inicialmente las trayectorias cartesianas del UR**.
+- Universal Robots **UR3 CB3**.
+- **PolyScope 3.14**.
+- **Logitech C920**, adquisición configurada a 1280×720 y 30 FPS; los FPS efectivos dependen de la captura y la GUI.
+- Pinza Robotiq mediante URCap — **modelo exacto pendiente de documentar**.
 
-### Responsabilidad de PolyScope
+**C13 físico: PASS. C14 end-to-end físico: PASS**, según confirmación del operador
+para el cierre del proyecto. Los tests automáticos no acreditan hardware ni sustituyen
+el commissioning de otro montaje. Ver [validación física](docs/physical-validation.md).
 
-PolyScope será responsable de:
+## Cómo usarlo
 
-- HOME;
-- aproximación y retirada;
-- punto de recogida de la pieza;
-- accionamiento de la herramienta;
-- posiciones de las nueve casillas;
-- velocidades, aceleraciones y movimientos seguros;
-- secuencia PICK → celda → HOME con Robotiq.
+1. [Instalar y abrir Robot Triqui](docs/installation.md) en un montaje configurado.
+2. Preparar tablero vacío, fichas, cámara y programa PolyScope.
+3. Esperar Cámara **CONECTADA**, Robot **LISTO** y Tablero **LISTO**.
+4. Elegir dificultad e inicio y pulsar **INICIAR PARTIDA**.
+5. Colocar una sola ficha en el turno humano y retirar la mano; mantener libre la zona durante el turno robot.
+6. Al terminar, usar **SALIR** y esperar el cierre de dispositivos.
 
-## Diseño ArUco de la V1
+## Construir desde cero
 
-La V1 utilizará **9 marcadores operacionales** del mismo diccionario:
+Seguir la [guía de construcción completa](docs/build-from-scratch.md): fabricación,
+ArUco, montaje, cámara, PolyScope, configuración local y commissioning C0–C14.
+Los CAD y datos de fabricación están en [hardware](hardware/README.md), con
+una [BOM descargable](hardware/BOM.csv). El soporte, la tornillería y ciertos datos
+de fabricación siguen pendientes de documentar; se indican explícitamente.
 
-- 9 marcadores internos, uno por cada casilla.
+## Tabla de fabricación
 
-```text
-        ┌─────────┬─────────┬─────────┐
-        │ ID 10   │ ID 11   │ ID 12   │
-        │ CELL 1  │ CELL 2  │ CELL 3  │
-        ├─────────┼─────────┼─────────┤
-        │ ID 13   │ ID 14   │ ID 15   │
-        │ CELL 4  │ CELL 5  │ CELL 6  │
-        ├─────────┼─────────┼─────────┤
-        │ ID 16   │ ID 17   │ ID 18   │
-        │ CELL 7  │ CELL 8  │ CELL 9  │
-        └─────────┴─────────┴─────────┘
-```
+| Elemento | Cantidad | Proceso | Archivo/Referencia |
+|----------|----------|---------|--------------------|
+| Ficha X | 5 | Impresión 3D | [ficha_X.stl](hardware/pieces/ficha_X.stl) |
+| Ficha O | 5 | Impresión 3D | [ficha_O.stl](hardware/pieces/ficha_O.stl) |
+| Base 1 | 1 | Corte láser | [base_1.dxf](hardware/board/base_1.dxf) |
+| Base 2 | 1 | Corte láser | [base_2.dxf](hardware/board/base_2.dxf) |
+| Horizontal central | 2 | Corte láser | [horizontal_central_x2.dxf](hardware/board/horizontal_central_x2.dxf) |
+| Horizontal lateral | 2 | Corte láser | [horizontal_lateral_x2.dxf](hardware/board/horizontal_lateral_x2.dxf) |
+| Vertical central | 2 | Corte láser | [vertical_central_x2.dxf](hardware/board/vertical_central_x2.dxf) |
+| Vertical lateral | 2 | Corte láser | [verticales_laterales_x2.dxf](hardware/board/verticales_laterales_x2.dxf) |
+| ArUco (IDs 10..18) | 9 | Impresión 2D | [generate_aruco.py](scripts/generate_aruco.py) |
+| Soporte de cámara | 1 | DISEÑO/ARCHIVO PENDIENTE DE PUBLICAR | Sin archivo publicado |
+| Tornillería M5 / T-slot | POR CONFIRMAR | Ensamble | Longitudes POR CONFIRMAR |
 
-### Marcadores por casilla
-
-Los IDs `10..18` identifican las casillas 1..9 respectivamente.
-
-Contrato inicial:
+## Arquitectura
 
 ```text
-ID 10 -> celda 1
-ID 11 -> celda 2
-ID 12 -> celda 3
-ID 13 -> celda 4
-ID 14 -> celda 5
-ID 15 -> celda 6
-ID 16 -> celda 7
-ID 17 -> celda 8
-ID 18 -> celda 9
+Cámara → OpenCV/ArUco → BoardObserver → GameSession/Minimax
+                                             ↓ celda 1..9
+                                         Modbus TCP
+                                             ↓
+                                   PolyScope → PICK → PLACE → HOME
+                                             ↓
+                                   Verificación visual → siguiente turno
 ```
 
-El principio previsto de ocupación será:
+Python gestiona percepción, estado temporal, juego, comunicación y verificación.
+PolyScope conserva las posiciones, interpola las celdas y ejecuta los movimientos.
+Python no genera trayectorias cartesianas. La visión usa IDs directamente, sin
+homografía, pose 3D ni calibración hand-eye. Ver [arquitectura](docs/architecture.md).
+
+## PolyScope
+
+Enseñar Point Features **CELL1, CELL3, CELL7, CELL9, PICK y HOME/WAIT**.
+Antes del Script Node, crear estos Assignments:
 
 ```text
-marcador visible de forma estable    -> casilla libre
-marcador deja de ser visible         -> candidata a casilla ocupada
+P1 = CELL1_const
+P3 = CELL3_const
+P7 = CELL7_const
+P9 = CELL9_const
+P_PICK = Feature real de recogida
+P_HOME = Feature HOME/WAIT
 ```
 
-La desaparición de un marcador **no se aceptará inmediatamente como jugada**. En fases posteriores se requerirá estabilidad temporal, ausencia de mano/robot en la zona y coherencia con el estado lógico previo.
+Las dos últimas expresiones describen las poses que se seleccionan en PolyScope;
+no son nombres literales para copiar. Cargar
+[robot/urscript/triqui_controller.script](robot/urscript/triqui_controller.script).
+Las otras cinco celdas se derivan en el UR; la orientación de las celdas es P1.
+**APPROACH_DZ = -0.060**: con el TCP validado, −Z Tool eleva 60 mm.
+Las poses reales se enseñan en cada montaje y no se publican.
 
-### Requisito mecánico importante
+Seguir el [procedimiento completo de PolyScope](docs/polyscope-urscript.md),
+incluidas funciones Robotiq, Assignments y modos de commissioning.
 
-Las piezas X y O deben diseñarse para **ocultar de forma fiable el marcador ArUco de la casilla** cuando están correctamente colocadas. Un O completamente abierto podría dejar visible un marcador situado en el centro, por lo que el diseño deberá incluir una zona opaca común, puente, base o geometría equivalente que garantice la oclusión del marcador sin perder la apariencia de la pieza.
+## Modbus
 
-La homografía, la pose 3D y la calibración se añadirán solo si las pruebas de V1
-demuestran que la identificación directa por IDs no es suficiente.
+TCP `502`, direccionamiento base cero:
 
-## Comunicación con el UR
+| Registro | Valores |
+|----------|---------|
+| 128 COMMAND | 0: reposo/acuse; 1..9: celda |
+| 129 STATUS | 0: READY; 1: BUSY; 2: DONE; 3: ERROR |
 
-Para preparar las pruebas de movimiento, consultar la
-[guía de calibración física](docs/calibracion-fisica.md). El comando
-`python main.py robot-test --host HOST --cell 5` rechaza la operación sin
-`--allow-motion`. Solo envía la celda por Modbus; el modo y los parámetros físicos
-se configuran en el UR. Ninguna prueba física se da por aprobada.
+READY → COMMAND de celda → BUSY → DONE → verificación visual → COMMAND0 → READY.
+El PC envía solamente la celda como orden de juego. COMMAND0 no es una parada.
+No hay reenvío automático tras entrega incierta. Ver [contrato Modbus](docs/modbus-protocol.md).
 
-La interfaz V1 prevista es un comando Modbus mínimo:
+## Desarrollo desde código
 
-Ejemplo conceptual:
-
-```text
-COMMAND = 1..9 -> PolyScope selecciona Pn y ejecuta el modo configurado
-```
-
-Los valores definitivos y las direcciones de registros se fijarán durante la fase de integración Modbus.
-
-## Fases
-
-1. **Vision & ArUco** — Logitech C920 y detección validada de los nueve IDs de celda.
-2. **Human Move Detection** — desaparición estable del marcador e ID → celda `1..9`.
-3. **Game Engine** — estado 3×3, reglas y Minimax.
-4. **PolyScope** — cuatro esquinas, PICK fijo y HOME; celdas interpoladas en el UR.
-5. **Modbus** — Python envía únicamente `COMMAND = 1..9`.
-6. **Integration** — cámara → jugada → motor → Modbus → PolyScope.
-7. **Validation / Optional robustness** — geometría avanzada solo con evidencia.
-
-El detalle de cada fase se mantiene en [`PLAN.md`](PLAN.md).
-
-## Filosofía de desarrollo
-
-- VS Code será el entorno principal de desarrollo.
-- GitHub será la fuente de verdad del proyecto.
-- Se trabajará por fases y ramas pequeñas.
-- No se implementarán fases futuras antes de validar la actual.
-- Los commits técnicos se escribirán en inglés.
-- La documentación del proyecto se mantendrá principalmente en español.
-- Ningún código automático debe mover el robot durante las primeras fases.
-- Las posiciones reales del UR, IP, calibraciones y parámetros locales no se publicarán en el repositorio.
-
-## Inicio rápido en Windows + VS Code
-
-Clonar el repositorio y abrirlo en VS Code:
+Usar Windows con Python **3.12** y Tcl/Tk funcional para la suite GUI.
 
 ```powershell
 git clone https://github.com/Juanleon-19/ur-tictactoe-vision.git
 cd ur-tictactoe-vision
-code .
-```
-
-Crear y activar un entorno virtual:
-
-```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-```
-
-Instalar dependencias:
-
-```powershell
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-Crear la configuración local a partir del ejemplo:
-
-```powershell
-Copy-Item config\vision.example.yaml config\vision.local.yaml
-```
-
-Ejecutar las pruebas automáticas:
-
-```powershell
+python -m pip install -r requirements-build.txt
 python -m pytest -q
+python -m pip check
+python main.py app --simulate
 ```
 
-`pytest.ini` mantiene los temporales en `.pytest-tmp/run` y la caché en
-`.pytest-tmp/cache`, ambos ignorados por Git. No depende del directorio temporal
-global de Windows. Pytest recrea su directorio `run` en cada ejecución; no guardar
-archivos personales allí.
+[requirements-build.txt](requirements-build.txt) fija las versiones del entorno
+validado; [requirements.txt](requirements.txt) contiene los rangos de dependencias.
+La simulación no abre cámara ni robot. La suite requiere una sesión gráfica y usa
+dispositivos falsos. Para modo real, preparar los YAML de ejemplo según
+[construir desde cero](docs/build-from-scratch.md).
 
-Generar los nueve marcadores ArUco iniciales:
+Las instrucciones para reconstruir una distribución están en
+[distribución desktop](docs/desktop-app.md) y [paquete portable](docs/portable-release.md).
+La descarga oficial sigue siendo el binario validado v1.0.0; reconstruir localmente
+no garantiza un ejecutable idéntico byte a byte ni actualiza esa Release.
+
+## ArUco
+
+Diccionario operacional: **DICT_5X5_50**, nueve marcadores:
+
+```text
+10 11 12
+13 14 15
+16 17 18
+```
+
+| ID | Celda | ID | Celda | ID | Celda |
+|----|-------|----|-------|----|-------|
+| 10 | CELL1 | 11 | CELL2 | 12 | CELL3 |
+| 13 | CELL4 | 14 | CELL5 | 15 | CELL6 |
+| 16 | CELL7 | 17 | CELL8 | 18 | CELL9 |
 
 ```powershell
-python scripts\generate_aruco.py
+python scripts/generate_aruco.py --ids 10 11 12 13 14 15 16 17 18
 ```
 
-Generar una hoja digital 1920×1080 con los nueve marcadores para mostrarla a pantalla completa:
+Los PNG se generan en `assets/aruco/`. Imprimir sin deformar, con margen blanco
+y sin reflejos; confirmar tamaño físico con el montaje. Ambas fichas deben ocultar
+su marcador al colocarse. Una ausencia aislada no equivale a ocupación: se valida
+temporalmente y contra el estado del juego. Ver [preparación física](hardware/README.md).
 
-```powershell
-python scripts\generate_aruco.py --board
+## Estructura del repositorio
+
+```text
+hardware/          STL, DXF, BOM e imágenes pendientes
+docs/              Instalación, construcción y procedimientos
+config/            Ejemplos YAML; configuración personal ignorada
+src/ur_tictactoe/   Visión, juego, comunicación, runtime y escritorio
+robot/urscript/    Controlador ejecutado en PolyScope
+scripts/           ArUco, commissioning y construcción de distribución
+tests/             Pruebas sin hardware real
+assets/            Recursos de la aplicación
+installer/         Fuente del instalador
+packaging/         Recursos de empaquetado
+main.py            Entrada de aplicación y herramientas
 ```
 
-Los PNG se guardarán en `assets/aruco/`. El tamaño físico definitivo se decidirá después de conocer cámara, altura, tamaño del tablero y campo de visión.
+## Documentación
 
-Ejecutar la visión en tiempo real:
+- [Instalación Windows](docs/installation.md) y [construir desde cero](docs/build-from-scratch.md).
+- [Fabricación y pendientes](hardware/README.md) y [material audiovisual](docs/media.md).
+- [PolyScope](docs/polyscope-urscript.md) y [calibración física](docs/calibracion-fisica.md).
+- [Commissioning C0–C14](docs/commissioning.md) y [validación física](docs/physical-validation.md).
+- [Arquitectura](docs/architecture.md), [motor de juego](docs/game-engine.md) y [runtime](docs/mvp-runtime.md).
+- [Modbus](docs/modbus-protocol.md), [aplicación desktop](docs/desktop-app.md) y [recuperación](docs/recovery-diagnostics.md).
+- [Plan y cierre del proyecto](PLAN.md).
 
-```powershell
-python main.py vision
-python main.py vision --aruco-profile robust
-```
+## Seguridad
 
-Observar automáticamente el estado físico temporal del tablero, sin botones ni
-confirmación manual:
+Operar con zona despejada, estado físico conocido y parada física accesible.
+Enseñar y comprobar TCP, payload, Features y recorridos en el equipo real.
+Al mover tablero, cámara, PICK o herramienta, repetir las comprobaciones afectadas.
+La identificación por IDs no acredita alineación mecánica ni corrige las poses.
+No poner las manos en la zona mientras se mueve el UR; reponer PICK únicamente en
+condiciones seguras. SALIR, Ctrl+C, ABORT, timeout y COMMAND0 no detienen un
+movimiento ya iniciado. Los tests automáticos nunca deben mover hardware.
 
-```powershell
-python main.py board-observe
-python main.py board-observe --aruco-profile default
-```
+## Autor
 
-El comando muestra preview, FPS, perfil, readiness, ratios por celda y estados
-`FREE`, `OCCUPIED` o `UNCERTAIN`. Al cerrar imprime la estabilidad de detección
-de los nueve IDs de celda. Los parámetros experimentales de ventana, evaluación, histéresis,
-umbrales y mínimo de muestras válidas están en `config/vision.example.yaml` y
-pueden sobrescribirse en la configuración local ignorada por Git.
-
-`board-observe`, `RealGameBackend` y la aplicación real utilizan `robust` por
-defecto. `--aruco-profile default` conserva el perfil diagnóstico de OpenCV en
-`board-observe`; `vision` mantiene `default` y permite seleccionar `robust`.
-
-Validar con cámara la desaparición estable de un marcador de celda como jugada
-humana, sin ejecutar el juego ni comunicarse con el robot:
-
-```powershell
-python main.py move-detect
-python main.py move-detect --stable-frames 8
-```
-
-El modo usa la misma configuración de `vision.local.yaml`. Con los nueve ArUco
-visibles debe indicar `Cell markers visible 9/9`. Al cubrir un
-único marcador de celda durante el número configurado de frames, muestra e imprime
-`HUMAN MOVE: CELL N`. Se cierra con `q` o `Esc`.
-
-Jugar manualmente contra el motor, sin cámara ni robot:
-
-```powershell
-python main.py game --difficulty hard --seed 42
-python main.py game --difficulty intermediate --seed 42
-python main.py game --human-first --difficulty intermediate --seed 42
-```
-
-La dificultad predeterminada es `hard`. Este modo conserva el Minimax perfecto;
-`intermediate` usa búsqueda limitada y puede cometer errores estratégicos de
-horizonte. La representación, las reglas y ambos algoritmos se explican en
-[`docs/game-engine.md`](docs/game-engine.md).
-
-En Windows, listar la información PnP disponible y probar secuencialmente los índices `0..5` con los backends `AUTO`, `DSHOW` y `MSMF`:
-
-```powershell
-python main.py cameras
-```
-
-El nombre PnP es diagnóstico y no implica una correspondencia automática con un índice OpenCV. El backend (`AUTO`, `DSHOW` o `MSMF`) y el índice encontrados se configuran manualmente en `config/vision.local.yaml`.
-
-Durante la Fase 1 la aplicación debe mostrar:
-
-- IDs detectados;
-- bordes y centros de cada marcador;
-- FPS;
-- número de marcadores de celda visibles de `9`;
-- IDs de celda faltantes, sin inferir ocupación instantánea.
-
-En Fase 1 un marcador interno ausente se reporta únicamente como **missing**; todavía no se clasifica automáticamente como una casilla ocupada.
-
-Salir con `q` o `Esc`.
-
-Si la cámara correcta no corresponde al índice `0`, editar únicamente `config/vision.local.yaml`. Ese archivo es local y está ignorado por Git.
-
-## Estado actual
-
-**Fase 3 — Game Engine, desarrollada anticipadamente con autorización explícita.**
-
-La Fase 1 está validada experimentalmente. El motor se prueba sin cámara, robot,
-Modbus ni red.
-
-## Mejoras futuras
-
-Los IDs 0..3 podrían incorporarse como referencia geométrica/homografía opcional.
-No están disponibles ni forman parte del sistema operacional actual.
+Juan Esteban León Saiz — [Juanleon-19](https://github.com/Juanleon-19).

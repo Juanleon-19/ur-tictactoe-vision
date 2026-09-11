@@ -1,9 +1,13 @@
-# Validación física del MVP
+# Validación física — v1.0.0
 
 Estado: C920 detectada a 1280×720 @ 30 FPS; `robust` mejoró claramente
 la detección frente a `default` y es el perfil operacional predeterminado.
 Se observaron IDs 10..18 en 9/9, con mayor flicker en ID18.
-La validación de ocupación y del ciclo físico completo sigue pendiente.
+**C13 físico: PASS. C14 end-to-end físico: PASS**, confirmados por el operador
+al cierre de v1.0.0, incluida la integración con visión. Esta actualización
+documenta esa confirmación; no ejecuta hardware ni publica los reportes personales.
+No se afirma un número de partidas ni métricas no suministradas. Los procedimientos
+siguientes permiten aceptar un nuevo montaje o repetir ensayos tras cambios.
 
 Estas pruebas se ejecutan manualmente y en orden. Los tests automáticos nunca
 mueven el robot.
@@ -55,9 +59,9 @@ y reejecutar los Assignments; Python no calcula ni transmite coordenadas.
 
 Seguir [Calibración física](calibracion-fisica.md): C10/C11 confirman Robotiq y
 PICK manual; C12/C13 prueban colocación con Mode2 y confirmación individual.
-C12 y varios ciclos C13 funcionaron; completar la cobertura restante. El pick/place
+C12 y C13 fueron validados físicamente por el operador. El pick/place
 excede 15 s: se usa 60 s por defecto, sin cambiar velocidades. No dejar un socket
 abierto durante espera humana ni repetir un comando de entrega incierta.
 C14 ejecuta aceptación guiada de un turno primero o partida completa con visión;
-la aceptación física de este nuevo flujo aún está pendiente.
+su aceptación end-to-end física está confirmada como PASS para v1.0.0.
 C6/C7 fueron confirmados físicamente; su contrato 128/129 se conserva.

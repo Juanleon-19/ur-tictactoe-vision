@@ -1,4 +1,4 @@
-# Aplicación de escritorio MVP
+# Aplicación de escritorio Robot Triqui
 
 Para la recuperación del robot después de C14 y la comparación de tiempos
 AUTO/DSHOW/MSMF, consultar [Recuperación y diagnóstico](recovery-diagnostics.md).
@@ -175,7 +175,8 @@ JOINT_A=0.20, JOINT_V=0.10, LINEAR_A=0.05, LINEAR_V=0.02.
 La C920 fue detectada y validada a 1280×720 @ 30 FPS. El perfil `robust`
 mejoró la detección y es el predeterminado del backend real y de `AppConfig`.
 Los IDs 10..18 se han observado 9/9; ID18 presenta más flicker.
-La prueba end-to-end con C920, tablero físico y UR sigue pendiente.
+El operador confirmó C13 físico PASS y C14 end-to-end físico PASS para v1.0.0.
+Consultar [validación física](physical-validation.md) para alcance y repetición.
 
 Los valores iniciales de conexión están en `AppConfig` y se documentan en
 `config/app.example.yaml`; no se guardan secretos ni parámetros físicos.
@@ -190,7 +191,7 @@ assets/javeriana_logo.png
 
 Si no existe, la aplicación continúa normalmente. No se duplican el nombre de la
 universidad ni textos académicos en encabezado o pie. `desktop/assets.py` resuelve esta ruta tanto desde el árbol
-de desarrollo como desde el directorio temporal `_MEIPASS` de una futura
+de desarrollo como desde el directorio temporal `_MEIPASS` de la
 aplicación PyInstaller. No se incluye ni se genera una imitación del escudo.
 
 ## Cámara / Diagnóstico
@@ -201,7 +202,7 @@ captura ni decide jugadas. Presenta video RGB anotado con IDs 10..18, perfil,
 resolución efectiva y estados FREE/OCCUPIED/UNCERTAIN. Sin cámara permanece
 disponible y muestra CÁMARA NO DISPONIBLE. En simulación no abre dispositivos.
 
-## Validación de Tcl/Tk
+## Validación de Tcl/Tk — nota histórica del entorno de desarrollo
 
 En esta sesión Python 3.12.10 y Tcl/Tk 8.6.15 funcionan fuera del contexto
 aislado del asistente. Dentro de ese contexto Tk falla al localizar init.tcl,
@@ -294,8 +295,10 @@ la distribución de smoke. Las evidencias quedan en `reports/smoke_*`, ignorado.
 Resultado: **SMOKE DE PROCESO = PASS** en simulación y real.
 **SMOKE VISUAL = NOT CONFIRMED**: no se realizó inspección visual del EXE con
 Computer Use. Los widgets y el resolver frozen sí tienen acceptance automatizada.
-Esta limitación externa no bloquea el cierre de software autorizado. Video/detección
-con cámara física y aceptación física del sistema siguen pendientes.
+Esta limitación histórica del smoke no equivale a una validación física pendiente:
+el operador confirmó C13 y C14 físicos PASS al cierre de v1.0.0. No se afirma
+una nueva inspección visual automatizada del EXE.
 
 El harness se distribuye mediante el [entrypoint Python independiente](commissioning.md).
-No se genera instalador ni un segundo EXE de commissioning en este cambio.
+El instalador publicado está disponible en [instalación](installation.md).
+El harness de commissioning conserva su entrada Python independiente.

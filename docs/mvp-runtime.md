@@ -1,6 +1,6 @@
 # Runtime físico MVP
 
-Integrado en `feature/gameplay-polish`, usado por la GUI real y C14.
+Integrado en el sistema final v1.0.0, usado por la GUI real y C14.
 BoardObserver y Minimax conservan su lógica y umbrales existentes.
 
 El runtime es una capa de aplicación independiente de GUI, cámara y robot. Recibe

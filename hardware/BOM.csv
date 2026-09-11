@@ -1,0 +1,12 @@
+categoria,elemento,cantidad,proceso,archivo,notas
+fichas,Ficha X,5,Impresión 3D,hardware/pieces/ficha_X.stl,Escala física y material POR CONFIRMAR
+fichas,Ficha O,5,Impresión 3D,hardware/pieces/ficha_O.stl,Escala física y material POR CONFIRMAR
+tablero,Base 1,1,Corte láser,hardware/board/base_1.dxf,DXF declara mm; material y espesor POR CONFIRMAR
+tablero,Base 2,1,Corte láser,hardware/board/base_2.dxf,DXF declara mm; material y espesor POR CONFIRMAR
+tablero,Horizontal central,2,Corte láser,hardware/board/horizontal_central_x2.dxf,Cantidad total 2; material y espesor POR CONFIRMAR
+tablero,Horizontal lateral,2,Corte láser,hardware/board/horizontal_lateral_x2.dxf,Cantidad total 2; material y espesor POR CONFIRMAR
+tablero,Vertical central,2,Corte láser,hardware/board/vertical_central_x2.dxf,Cantidad total 2; material y espesor POR CONFIRMAR
+tablero,Vertical lateral,2,Corte láser,hardware/board/verticales_laterales_x2.dxf,Cantidad total 2; material y espesor POR CONFIRMAR
+marcadores,ArUco,9,Impresión 2D,scripts/generate_aruco.py,DICT_5X5_50; IDs 10..18; tamaño físico POR CONFIRMAR
+soporte,Soporte de cámara,1,DISEÑO/ARCHIVO PENDIENTE DE PUBLICAR,,Sin archivo publicado
+tornillería,Tornillería M5 / T-slot,POR CONFIRMAR,Ensamble,,Longitudes POR CONFIRMAR

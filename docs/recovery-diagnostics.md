@@ -3,8 +3,9 @@
 El operador reportó **C13 y C14 PASS físicos**, con MOTION_MODE=2 funcionando.
 Esta iteración no ejecuta hardware ni cambia parámetros de cámara, poses,
 interpolación, velocidades o gripper. Refuerza únicamente el cierre de recursos.
-El nuevo arranque y la recuperación requieren validación
-física posterior, sin dar por repetidos esos ensayos.
+Esta nota conserva el análisis de la iteración de recuperación y sus ensayos
+específicos, que no se dan por repetidos. El estado de cierre v1.0.0 es C13 físico
+PASS y C14 end-to-end físico PASS; ver [validación física](physical-validation.md).
 
 ## Arranque seguro del controlador
 

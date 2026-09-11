@@ -2,8 +2,9 @@
 
 Arquitectura vigente para CB3 / PolyScope 3.14. El operador confirmó físicamente
 los Assignments, interpolación, Tool Z y recogida/colocación con Robotiq.
-Mode1 y Mode2 ya funcionaron físicamente, incluido C12 y varios ciclos C13.
-Completar C13 y registrar aceptación end-to-end C14; no se infiere PASS de software.
+Estado final v1.0.0 comunicado por el operador: **C13 físico: PASS** y
+**C14 end-to-end físico: PASS**. Mode1, Mode2 y C12 también fueron probados.
+Cada nuevo montaje requiere su propio commissioning; no se infiere PASS de software.
 
 ## Preparar Installation y programa
 

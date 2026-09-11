@@ -1,57 +1,40 @@
-# Controlador URScript de Triqui
+# Controlador URScript de Robot Triqui
 
-**Estado: PREPARADO PARA VALIDACIÓN FÍSICA. NO VALIDADO EN UN ROBOT.**
+[triqui_controller.script](triqui_controller.script) es el controlador operacional
+para UR3 CB3 / PolyScope 3.14. El operador confirmó C13 físico PASS y C14 end-to-end
+físico PASS al cierre v1.0.0. Cada nuevo montaje debe realizar su propio commissioning.
 
-`triqui_controller.script` es un controlador V1 pequeño para PolyScope. Conserva
-los registros `128 COMMAND` y `129 STATUS`, calcula las nueve celdas desde el
-Feature Plane `TABLERO` y arranca con `MOTION_MODE = 0`, que no ejecuta movimientos.
+## Preparación
 
-## Antes de usarlo
+Seguir [PolyScope y Assignments](../../docs/polyscope-urscript.md) y
+[calibración física](../../docs/calibracion-fisica.md). Enseñar Point Features
+CELL1/CELL3/CELL7/CELL9 de colocación, PICK y HOME/WAIT. Antes del Script Node,
+crear P1=CELL1_const, P3=CELL3_const, P7=CELL7_const y P9=CELL9_const;
+asignar P_PICK y P_HOME seleccionando sus Features reales.
+Incluir funciones rq_activate_and_wait, rq_open_and_wait y rq_close_and_wait
+mediante el URCap Robotiq, incluso para cargar Mode0. El modelo exacto de pinza
+y versión del URCap quedan pendientes de documentar.
 
-No cambiar `MOTION_MODE` hasta verificar en el robot:
+Cargar el archivo mediante Script > File después de los Assignments. El controlador
+usa cuatro esquinas, promedios XYZ y orientación P1; no usa Plane Feature ni
+Play_Cell. No publicar poses ni una Installation personal.
 
-- modelo de robot y versión exacta de PolyScope/URScript;
-- TCP, payload y herramienta;
-- Feature Plane `TABLERO` enseñado físicamente;
-- disponibilidad del símbolo URScript `TABLERO` dentro del Script node;
-- pitch medido `GRID_DX=GRID_DY=0.0655` m y origen en celda 1;
-- `Z_SAFE` y `Z_PLACE`, pendientes de medición relativa al Plane;
-- `CELL_RX`, `CELL_RY`, `CELL_RZ`, como vector de rotación relativo al Feature;
-- HOME o posición inicial segura y recorrido libre hasta cada `CELL_N_SAFE`;
-- solución de cinemática inversa y configuración articular para las nueve celdas;
-- aceleración y velocidad iniciales bajo evaluación de riesgos.
+## Operación
 
-`CELL1_X=CELL1_Y=0.0` sí representa el origen acordado en celda 1. Las alturas,
-orientación, HOME/PICK y velocidades desconocidas se expresan mediante listas
-vacías `[]`, nunca poses ficticias. Consultar la representación exacta y los
-12 pasos en [Calibración física](../../docs/calibracion-fisica.md).
+- Mode0, predeterminado: handshake sin movimiento ni accionamiento de pinza.
+- Mode1: aproximación a Pn_UP, sin descenso ni recogida.
+- Mode2: PICK → PLACE → HOME mediante Robotiq.
 
-Mode 1 exige geometría, orientación y movimiento configurados; no usa gripper ni
-PICK. Mode 2 exige además PICK/HOME/Z_PLACE y Robotiq configurados. El adaptador
-Robotiq permanece sin activar hasta identificar modelo y versión URCap, verificar
-sus funciones y probar agarre/liberación. Cambiar un flag no implementa el adaptador.
+APPROACH_DZ=-0.060 corresponde a −Z Tool, 60 mm de elevación con el TCP validado.
+Conservar parámetros productivos; enseñar y verificar TCP, payload y recorridos
+para el equipo real. El operador cambia el modo en el robot, nunca desde Python.
+Tras editar Features, detener y reejecutar desde los Assignments.
 
-El CLI de ensayo es `python main.py robot-test --host HOST --cell 5 --allow-motion`.
-Sin `--allow-motion` no conecta ni escribe. No envía poses y no cambia MOTION_MODE.
-No ejecutar junto con otro cliente Modbus. Timeout/reset de COMMAND no detienen
-un movimiento ya iniciado; parar e inspeccionar desde el teach pendant.
+COMMAND128: 0 reposo/acuse, 1..9 celda. STATUS129: 0 READY, 1 BUSY, 2 DONE, 3 ERROR.
+El controlador limpia COMMAND al arrancar antes de READY. Ver
+[contrato Modbus](../../docs/modbus-protocol.md) y
+[commissioning C0–C14](../../docs/commissioning.md).
 
-## Inclusión en PolyScope
-
-En la Installation se espera configurar TCP, payload, Feature `TABLERO` y la
-herramienta. En el Program se añade la inicialización necesaria y un **Script
-node / File** que carga `triqui_controller.script`. Universal Robots documenta
-que un Script node puede cargar archivos URScript y hacer disponibles sus
-funciones y variables al programa. No se genera un archivo `.urp`.
-
-La forma exacta de importación y el nombre resoluble del Feature deben verificarse
-en la versión instalada. Si PolyScope inserta el archivo dentro de otro programa,
-se debe confirmar si espera el programa completo o únicamente su cuerpo antes de
-ejecutarlo.
-
-Referencias oficiales:
-
-- [UR Modbus Server](https://www.universal-robots.com/articles/ur/interface-communication/modbus-server/)
-- [PolyScope Script node](https://www.universal-robots.com/manuals/EN/HTML/SW5_26/Content/prod-usr-man/software/PolyScope/content/AdvProgNodes/commandtab_script_en.htm)
-- [PolyScope Features](https://www.universal-robots.com/manuals/EN/HTML/SW5_21/Content/prod-usr-man/software/PolyScope/content/installation_g5/installation_features_en.htm)
-- [URScript manuals](https://www.universal-robots.com/developer/urscript/)
+Timeout, ABORT, cierre de aplicación y COMMAND0 no detienen un movimiento iniciado.
+Usar parada física ante riesgo. Los tests automáticos no compilan en CB3 ni
+validan cinemática; no deben mover hardware.

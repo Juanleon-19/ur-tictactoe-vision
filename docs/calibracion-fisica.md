@@ -3,8 +3,9 @@
 CB3 / PolyScope 3.14. El operador validó Assignments desde Point Features,
 aproximación Tool Z -60 mm, Robotiq open/close y la secuencia
 PICK → close → UP → CELL5_UP → CELL5 → open → UP. C6/C7 también están validados.
-Mode1 y Mode2 fueron probados: C12 y varios ciclos C13 funcionaron físicamente.
-Completar C13 y aceptar el end-to-end mediante C14. Esta iteración no ejecuta hardware.
+Mode1, Mode2 y C12 fueron probados. Estado final v1.0.0 confirmado por el operador:
+**C13 físico: PASS; C14 end-to-end físico: PASS**. Repetir la aceptación al
+configurar otro montaje. Esta actualización documental no ejecuta hardware.
 
 ## Configuración enseñada
 
